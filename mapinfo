@@ -1,0 +1,9 @@
+// Without this the handler never registers and nothing happens at all.
+//
+// RSS_Registry is separate and STATIC: it holds the effect list, which has to
+// survive a map change so a mod can register once at startup.
+GameInfo
+{
+	AddEventHandlers = "RSS_Handler"
+	AddEventHandlers = "RSS_Registry"
+}

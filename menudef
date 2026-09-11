@@ -1,0 +1,316 @@
+OptionValue "RSS_Preset"
+{
+	 0, "Off"
+	 1, "Tide"
+	 2, "Patrol"
+	 3, "Sonar"
+	 4, "Shockwave"
+	 5, "Corridor"
+	 6, "Rising"
+	 7, "Dragnet"
+	 8, "Cage"
+	 9, "Hologram"
+	10, "Interference"
+	11, "Bloodrush"
+	12, "Carnival"
+	13, "Wall of Light"
+	14, "Wall of Darkness"
+	15, "Wall of Colour"
+	16, "Wall of Fog"
+	17, "Sweep -- west to east"
+	18, "Sweep -- north to south"
+	19, "Purge -- takes the light with it"
+	20, "Curtain -- you cannot see past it"
+}
+
+OptionValue "RSS_Shape"
+{
+	1, "Rings (across the floor)"
+	2, "Bars, east and west"
+	3, "Bars, north and south"
+	4, "Shells (rise as they grow)"
+	5, "A plane, rising"
+	6, "SWEEP -- west to east"
+	7, "SWEEP -- south to north"
+	8, "SWEEP -- east to west"
+	9, "SWEEP -- north to south"
+}
+
+OptionValue "RSS_Draw"
+{
+	1, "Add -- a band of light"
+	2, "Lift -- raises what is there"
+	3, "Crush -- a band of DARK"
+}
+
+OptionValue "RSS_Origin"
+{
+	0, "Map origin"
+	1, "Follows you"
+	2, "Fixed point below"
+}
+
+OptionValue "RSS_Fill"
+{
+	0, "None -- a plain wash"
+	1, "Grid"
+	2, "Dots"
+	3, "Solid slab"
+}
+
+OptionValue "RSS_GradAxis"
+{
+	0, "Across"
+	1, "Up"
+}
+
+OptionMenu "RSSMain"
+{
+	Title "Sweeps"
+	StaticText "Bands of light travelling through the world,", "gray"
+	StaticText "tested per pixel against world position on every", "gray"
+	StaticText "surface -- so one band wraps across floor, wall", "gray"
+	StaticText "and ceiling as a single unbroken line. A sector's", "gray"
+	StaticText "glow is uniform across that sector. This is not.", "gray"
+	StaticText ""
+	Option "Enabled", "rss_enabled", "OnOff"
+	Option "Preset", "rss_preset", "RSS_Preset"
+	StaticText "A preset sets the look and the motion. It never", "gold"
+	StaticText "touches the switches on the Sources page.", "gold"
+	StaticText ""
+	Submenu "Sources -- what starts one", "RSSSources"
+	Submenu "The Band", "RSSBand"
+	Submenu "Colour", "RSSColor"
+	Submenu "Lattice", "RSSFill"
+	Submenu "Effects -- what a sweep DOES", "RSSFx"
+}
+
+OptionMenu "RSSSources"
+{
+	Title "Sources"
+	StaticText "Three independent sources, because they are three", "gray"
+	StaticText "different feelings. They share eight band slots:", "gray"
+	StaticText "standing bands take the low ones, the ping takes", "gray"
+	StaticText "the top, and fired bands fill in from above.", "gray"
+	StaticText ""
+	StaticText "Set the standing count to 8 and events have", "gold"
+	StaticText "nowhere to go.", "gold"
+	StaticText ""
+	StaticText "STANDING -- the room has weather", "white"
+	Option "Enabled", "rss_ambient", "OnOff"
+	Slider "How many", "rss_ambient_count", 0, 8, 1, 0
+	Slider "Speed", "rss_ambient_speed", 0.0, 2.0, 0.01, 2
+	Slider "How far they travel", "rss_ambient_reach", 128, 4096, 32, 0
+	Option "Shape", "rss_ambient_shape", "RSS_Shape"
+	StaticText "The four SWEEP shapes are one front crossing the", "gold"
+	StaticText "whole map. They ignore the origin and reach below", "gold"
+	StaticText "and take both from the map's own size, because a", "gold"
+	StaticText "sweep that starts in the middle or stops halfway", "gold"
+	StaticText "is not a sweep. Bars are abs() -- two planes", "gray"
+	StaticText "moving APART from the origin, which is a split.", "gray"
+	StaticText ""
+	Option "Centred on", "rss_ambient_org", "RSS_Origin"
+	StaticText "For a SWEEP shape this chooses whether the front", "gray"
+	StaticText "starts at the map edge and crosses everything, or", "gray"
+	StaticText "starts where you are and travels outward from you.", "gray"
+	Slider "  Fixed east", "rss_ambient_x", -8192, 8192, 64, 0
+	Slider "  Fixed north", "rss_ambient_y", -8192, 8192, 64, 0
+	Slider "  Fixed height", "rss_ambient_z", -2048, 2048, 32, 0
+	StaticText ""
+	StaticText "PING -- equipment you are carrying", "white"
+	Option "Enabled", "rss_ping", "OnOff"
+	Slider "Seconds between", "rss_ping_every", 0.5, 15.0, 0.5, 1
+	Slider "Speed", "rss_ping_speed", 0.1, 3.0, 0.05, 2
+	Slider "Reach", "rss_ping_reach", 128, 4096, 32, 0
+	StaticText ""
+	StaticText "FIRED -- the world answering you", "white"
+	Option "On a kill", "rss_ev_kill", "OnOff"
+	Option "  Bosses only", "rss_ev_bossonly", "OnOff"
+	Slider "  ...or anything this big", "rss_ev_boss_health", 0, 6000, 100, 0
+	StaticText "Counts the BOSS flag, the BOSSDEATH flag, and", "gray"
+	StaticText "sheer size -- a colour-tier boss is often neither", "gray"
+	StaticText "flagged nor scripted and is simply enormous.", "gray"
+	Slider "  Only at tier or above", "rss_ev_tier_min", 0, 13, 1, 0
+	TextField "  Only this class", "rss_ev_class"
+	StaticText "Blank means any monster. A class name catches", "gray"
+	StaticText "everything descended from it, so one entry covers", "gray"
+	StaticText "every colour of a family.", "gray"
+	Option "On an explosion", "rss_ev_explode", "OnOff"
+	Option "When YOU are hurt", "rss_ev_hurt", "OnOff"
+	Slider "How many may hold at once", "rss_ev_slots", 0, 8, 1, 0
+	Slider "Life, seconds", "rss_ev_life", 0.1, 5.0, 0.1, 1
+	Slider "Reach", "rss_ev_reach", 128, 4096, 32, 0
+	Slider "Speed", "rss_ev_speed", 0.1, 4.0, 0.05, 2
+	Option "Shape", "rss_ev_shape", "RSS_Shape"
+	StaticText "Pick a SWEEP shape and a kill sends one front", "gold"
+	StaticText "across the rest of the map from where that", "gold"
+	StaticText "monster was standing.", "gold"
+}
+
+OptionMenu "RSSBand"
+{
+	Title "The Band"
+	Slider "Thickness", "rss_thickness", 1, 256, 1, 0
+	Slider "Softness", "rss_softness", 0.05, 3.0, 0.05, 2
+	Slider "Brightness", "rss_intensity", 0.0, 4.0, 0.05, 2
+	Option "Draw mode", "rss_draw", "RSS_Draw"
+	StaticText "Crush subtracts -- a band of dark sweeping the", "gray"
+	StaticText "room instead of a band of light.", "gray"
+	StaticText ""
+	StaticText "A WALL YOU CANNOT SEE THROUGH", "gold"
+	StaticText "Set the lattice to Solid slab with IN THE AIR at", "gray"
+	StaticText "1.00 and the band stops being a line and becomes", "gray"
+	StaticText "a moving wall. ADD blows it out to white; CRUSH", "gray"
+	StaticText "blends the view to the lattice colour instead, so", "gray"
+	StaticText "black is darkness you cannot see into. Four", "gray"
+	StaticText "presets are set up this way already.", "gray"
+	StaticText ""
+	Slider "Wake", "rss_trail", -8.0, 8.0, 0.1, 1
+	StaticText "0 is a symmetric band. Either side of that", "gray"
+	StaticText "stretches it behind or ahead, so it reads as", "gray"
+	StaticText "travelling rather than as appearing.", "gray"
+	StaticText ""
+	Slider "Fade out over", "rss_fade", 0.0, 0.95, 0.05, 2
+	StaticText "How much of the travel is spent fading. 0 means", "gray"
+	StaticText "the band stops at full brightness, which reads as", "gray"
+	StaticText "being switched off.", "gray"
+}
+
+OptionMenu "RSSColor"
+{
+	Title "Colour"
+	Slider "Red", "rss_col_r", 0, 255, 5, 0
+	Slider "Green", "rss_col_g", 0, 255, 5, 0
+	Slider "Blue", "rss_col_b", 0, 255, 5, 0
+	StaticText ""
+	StaticText "A second colour the band crosses INTO as it", "gray"
+	StaticText "travels, so it changes on the way out.", "gray"
+	Slider "Mix", "rss_col_mix", 0.0, 1.0, 0.05, 2
+	Slider "Second red", "rss_col2_r", 0, 255, 5, 0
+	Slider "Second green", "rss_col2_g", 0, 255, 5, 0
+	Slider "Second blue", "rss_col2_b", 0, 255, 5, 0
+}
+
+OptionMenu "RSSFill"
+{
+	Title "Lattice"
+	StaticText "The pattern drawn INSIDE a band. The band's own", "gray"
+	StaticText "colour is the field, this colour is the lines.", "gray"
+	StaticText "Spacing 0 in an axis means no lines in that axis,", "gray"
+	StaticText "so a grid, slats and a single tripwire are all", "gray"
+	StaticText "one mode.", "gray"
+	StaticText ""
+	Option "Pattern", "rss_fill", "RSS_Fill"
+	Slider "Spacing across", "rss_fill_u", 0, 256, 2, 0
+	Slider "Spacing up", "rss_fill_v", 0, 256, 2, 0
+	Slider "Line width", "rss_fill_width", 0.5, 24.0, 0.5, 1
+	Slider "Line softness", "rss_fill_soft", 0.1, 6.0, 0.1, 1
+	Slider "How lit between the lines", "rss_fill_gap", 0.0, 1.0, 0.05, 2
+	StaticText ""
+	Slider "IN THE AIR", "rss_fill_air", 0.0, 1.0, 0.05, 2
+	StaticText "0 paints the lattice onto whatever surfaces the", "gold"
+	StaticText "band lands on. Above 0 it also hangs in the air,", "gold"
+	StaticText "so you walk THROUGH a grid of light rather than", "gold"
+	StaticText "looking at one on a wall. Costs more per pixel", "gold"
+	StaticText "inside a band, which is why the quiet presets", "gold"
+	StaticText "leave it at 0.", "gold"
+	StaticText ""
+	Slider "Line red", "rss_fill_r", 0, 255, 5, 0
+	Slider "Line green", "rss_fill_g", 0, 255, 5, 0
+	Slider "Line blue", "rss_fill_b", 0, 255, 5, 0
+	StaticText ""
+	StaticText "HOW IT MOVES", "white"
+	Slider "Rotate", "rss_fill_rotate", -90.0, 90.0, 1.0, 0
+	Slider "Drift", "rss_fill_drift", -64.0, 64.0, 1.0, 0
+	Slider "Thicken every Nth line", "rss_fill_major", 0, 16, 1, 0
+	Slider "  by", "rss_fill_boost", 1.0, 6.0, 0.1, 1
+	Slider "Jitter", "rss_fill_jitter", 0.0, 1.0, 0.05, 2
+	Slider "Flicker", "rss_fill_flicker", 0.0, 1.0, 0.05, 2
+	Slider "Fade along the band", "rss_fill_grad", 0.0, 1.0, 0.05, 2
+	Option "  along", "rss_fill_grad_axis", "RSS_GradAxis"
+}
+
+OptionMenu "RSSFx"
+{
+	Title "Effects"
+	StaticText "A band is a moving FRONTIER. Everything it crosses", "gray"
+	StaticText "can be acted on exactly once, at the moment the", "gray"
+	StaticText "front reaches it -- so a sweep changes the level in", "gray"
+	StaticText "the order the wave arrives, rather than toggling", "gray"
+	StaticText "everything at once with a light on top.", "gray"
+	StaticText ""
+	StaticText "Only bands that carry an effect pay for this.", "gold"
+	StaticText ""
+	Option "Enabled", "rss_fx", "OnOff"
+	Option "Act on sectors", "rss_fx_sectors", "OnOff"
+	Option "Act on actors", "rss_fx_actors", "OnOff"
+	StaticText ""
+	StaticText "RETIER MONSTERS -- needs RS_Main", "white"
+	StaticText "Detected by class lookup at runtime, so this mod", "gray"
+	StaticText "runs perfectly well without it -- these options", "gray"
+	StaticText "simply do nothing. Nothing here links the two:", "gray"
+	StaticText "the sweep calls a hook every actor has, and the", "gray"
+	StaticText "monsters decide what it means.", "gray"
+	Option "Enabled", "rss_fx_tier", "OnOff"
+	Option "Tier is the sweep's colour", "rss_fx_tier_bycolour", "OnOff"
+	StaticText "On: a BLUE sweep makes BLUE monsters -- the same", "gold"
+	StaticText "band that turned the fog blue. The tier ladder is", "gold"
+	StaticText "a colour ladder, so nearest colour wins.", "gold"
+	StaticText "Off: use the relative step below instead.", "gray"
+	Slider "  Steps", "rss_fx_tier_step", -4, 4, 1, 0
+	StaticText "Triggers the staggered neutral/glow/neutral", "gray"
+	StaticText "sequence the monsters already own -- nothing is", "gray"
+	StaticText "spawned and nothing is replaced. Negative steps", "gray"
+	StaticText "tier DOWN. Monsters with no tier ladder are", "gray"
+	StaticText "skipped, and a locked one ignores it.", "gray"
+	StaticText ""
+	StaticText "GLOW -- repaint the room in the sweep's colour", "white"
+	Option "Enabled", "rss_fx_glow", "OnOff"
+	Slider "  Wall glow reach", "rss_fx_glow_wall", 0, 512, 8, 0
+	Slider "  Flat glow reach", "rss_fx_glow_flat", 0, 512, 8, 0
+	Option "Repaint (legacy)", "rss_fx_recolour", "OnOff"
+	Slider "  Reach", "rss_fx_recolour_reach", 0, 512, 8, 0
+	StaticText ""
+	StaticText "SECTOR LIGHT", "white"
+	Option "Enabled", "rss_fx_light", "OnOff"
+	Slider "  Step", "rss_fx_light_step", -128, 128, 4, 0
+	StaticText "Negative puts rooms out behind the wave.", "gray"
+	Slider "  Never below", "rss_fx_light_floor", 0, 255, 5, 0
+	Slider "  Never above", "rss_fx_light_ceil", 0, 255, 5, 0
+	StaticText ""
+	StaticText "FOG -- needs RS_Fog", "white"
+	Option "Ripple it", "rss_fx_fog", "OnOff"
+	Option "Colour it", "rss_fx_fogtint", "OnOff"
+	Slider "  Mix", "rss_fx_fogtint_mix", 0.0, 1.0, 0.05, 2
+	StaticText "Mixes the sweep colour through the mist and", "gray"
+	StaticText "leaves its shape, height and density alone.", "gray"
+	StaticText ""
+	StaticText "DARKNESS -- needs RS_Darkness", "white"
+	Option "Enabled", "rss_fx_dark", "OnOff"
+	Slider "  Step", "rss_fx_dark_step", -32.0, 32.0, 1.0, 0
+	Slider "  Never below", "rss_fx_dark_min", 0, 255, 5, 0
+	Slider "  Never above", "rss_fx_dark_max", 0, 255, 5, 0
+	StaticText ""
+	StaticText "COLOUR DRAIN", "white"
+	Option "Enabled", "rss_fx_desat", "OnOff"
+	Slider "  Per sector crossed", "rss_fx_desat_step", -0.5, 0.5, 0.01, 2
+	Option "  Put it back after", "rss_fx_desat_reset", "OnOff"
+	StaticText ""
+	StaticText "DECORATIONS", "white"
+	Option "Outline what it passes", "rss_fx_decor", "OnOff"
+	Option "  Monsters too", "rss_fx_decor_monsters", "OnOff"
+	Slider "  Strength", "rss_fx_decor_strength", 0.0, 2.0, 0.05, 2
+	Slider "  Thickness", "rss_fx_decor_thickness", 0.2, 6.0, 0.1, 1
+	Slider "  Edge threshold", "rss_fx_decor_threshold", 0.0, 1.0, 0.02, 2
+	Slider "  Glow", "rss_fx_decor_glow", 0.0, 8.0, 0.1, 1
+	StaticText "Traces lamps, barrels, corpses and gore in the", "gray"
+	StaticText "sweep colour as the front reaches them.", "gray"
+	StaticText ""
+	StaticText "OTHER", "white"
+	Option "Wake what it passes", "rss_fx_rouse", "OnOff"
+}
+
+AddOptionMenu "OptionsMenu"
+{
+	Submenu "Sweeps", "RSSMain"
+}

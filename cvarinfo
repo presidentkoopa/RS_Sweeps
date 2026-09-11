@@ -1,0 +1,221 @@
+// RS_Sweeps -- CVars
+//
+// Bands of light travelling through the world, tested per pixel against world
+// position on every surface -- so one band wraps across floor, wall and ceiling
+// as a single unbroken line. Nothing per-sector can do that: a sector's glow is
+// uniform across that sector, this is per-pixel in world space.
+//
+// The engine has carried this for a long time with one caller: the weapon
+// wheel, using one band out of eight as an expanding ring. Bands 1-7, the
+// trail, the per-band shapes, the draw modes and the whole lattice had never
+// been driven by anything.
+
+server bool  rss_enabled       = true;
+server int   rss_preset        = 1;
+
+// Internal. The preset last applied, so a preset only re-applies when it
+// CHANGES rather than on every map load, which would wipe slider tweaks.
+//
+// NOSAVE, NOT SERVER, and the distinction is load-bearing -- see the same note
+// in RS_GlowInTheDark and RS_Darkness. A server cvar is not written locally
+// when you set it; the write is queued to the network and only lands after it
+// round-trips, so a latch read back on the next tic still reads its old value
+// and the whole preset re-applies. That compounds until the tic's net buffer
+// overflows.
+nosave int   rss_preset_applied = -1;
+
+// ------------------------------------------------------------- what fires --
+//
+// Three independent sources, because they are three different feelings and
+// nothing says you want only one. Ambient is the room having weather. Events
+// are the world answering you. Ping is equipment you are carrying.
+//
+// They share the eight band slots: ambient takes the low slots, events claim
+// from the top down, and the ping takes one. Running all three at once with a
+// high ambient count will starve the events -- the menu says so.
+
+server bool  rss_ambient       = true;
+server int   rss_ambient_count = 2;
+server float rss_ambient_speed = 0.35;   // cycles per second
+server float rss_ambient_reach = 900.0;  // how far a band travels before restarting
+server int   rss_ambient_shape = 1;      // 1 ring, 2 bars along X, 3 bars along Y, 4 shell, 5 rising plane
+server int   rss_ambient_org   = 1;      // 0 map origin, 1 follows you, 2 fixed below
+
+server float rss_ambient_x     = 0.0;
+server float rss_ambient_y     = 0.0;
+server float rss_ambient_z     = 0.0;
+
+// A ping from you. One band, restarting on an interval rather than cycling
+// continuously, so it reads as a device rather than as the room.
+server bool  rss_ping          = false;
+server float rss_ping_every    = 3.0;    // seconds between pings
+server float rss_ping_speed    = 1.1;    // how fast it travels out
+server float rss_ping_reach    = 1100.0;
+
+// The world answering. Each of these spawns a band at the thing that happened.
+server bool  rss_ev_kill       = true;
+server bool  rss_ev_explode    = true;
+server bool  rss_ev_hurt       = false;  // when YOU take damage
+server bool  rss_ev_fire       = false;  // every shot -- busy on a chaingun
+server float rss_ev_life       = 1.1;    // seconds a fired band lives
+server float rss_ev_reach      = 700.0;
+server float rss_ev_speed      = 1.0;
+server int   rss_ev_shape      = 1;
+server int   rss_ev_slots      = 4;      // how many of the eight events may hold
+
+// ---------------------------------------------------------------- the band --
+
+server float rss_thickness     = 26.0;   // world units of full strength
+server float rss_softness      = 0.55;   // falloff exponent past the thickness
+server float rss_intensity     = 1.30;
+server float rss_trail         = 0.0;    // wake length, signed; 0 = symmetric
+server int   rss_draw          = 1;      // 1 add, 2 lift, 3 crush
+
+// Fade out as the band reaches the end of its travel, so it does not simply
+// stop existing at full brightness.
+server float rss_fade          = 0.35;   // fraction of the life spent fading
+
+// -------------------------------------------------------------- the colour --
+
+server int   rss_col_r         = 120;
+server int   rss_col_g         = 200;
+server int   rss_col_b         = 255;
+
+// A second colour the band crosses into as it travels. Mix 0 = one colour.
+server float rss_col_mix       = 0.0;
+server int   rss_col2_r        = 255;
+server int   rss_col2_g        = 90;
+server int   rss_col2_b        = 160;
+
+// --------------------------------------------------------------- lattice --
+//
+// The pattern drawn INSIDE a band. The band's own colour is the field, this
+// colour is the lines, and spacing 0 in an axis means no lines in that axis --
+// so a grid, slats and a single tripwire are all one mode.
+//
+// AIR is the part nothing else in this family can do. At 0 the lattice is
+// painted onto whatever surfaces the band lands on; above 0 it also hangs in
+// the air, so you walk through a grid of light rather than looking at one.
+// It costs more per fragment inside a band, which is why the quiet presets
+// leave it at 0.
+
+server int   rss_fill          = 0;      // 0 none, 1 grid, 2 dots, 3 solid slab
+server float rss_fill_u        = 48.0;   // spacing across, world units
+server float rss_fill_v        = 48.0;   // spacing up
+server float rss_fill_width    = 3.0;
+server float rss_fill_soft     = 1.5;
+server float rss_fill_gap      = 0.35;   // how lit the space between lines is
+server float rss_fill_air      = 0.0;
+
+server int   rss_fill_r        = 255;
+server int   rss_fill_g        = 255;
+server int   rss_fill_b        = 255;
+
+// How the lattice moves within the band. Rotate is degrees, drift slides it
+// along, major thickens every Nth line, jitter and flicker are the two ways of
+// making it look driven rather than drawn.
+server float rss_fill_rotate   = 0.0;
+server float rss_fill_drift    = 0.0;
+server float rss_fill_major    = 0.0;
+server float rss_fill_boost    = 2.0;
+server float rss_fill_jitter   = 0.0;
+server float rss_fill_flicker  = 0.0;
+server float rss_fill_grad     = 0.0;
+server int   rss_fill_grad_axis = 0;
+
+// ------------------------------------------------- what a sweep DOES to it --
+//
+// The frontier can act on what it passes. Everything here is off by default:
+// a sweep is a light until you ask it to be more than that.
+
+server bool  rss_fx           = false;   // master switch for all of it
+server bool  rss_fx_sectors   = true;    // test sectors as the front passes
+server bool  rss_fx_actors    = true;    // test actors
+
+// THE RETIER. Triggers RS_MonsterMaster's staggered neutral/glow/neutral
+// sequence on monsters the front reaches. Step is signed, so a sweep can tier
+// DOWN as readily as up. Vanilla monsters have no ladder and are skipped.
+server bool  rss_fx_tier      = false;
+server int   rss_fx_tier_step = 1;
+
+server bool  rss_fx_fog       = false;
+server float rss_fx_fog_radius   = 160.0;
+server float rss_fx_fog_strength = 0.7;
+server float rss_fx_fog_speed    = 200.0;
+server float rss_fx_fog_life     = 0.8;
+
+server bool  rss_fx_recolour  = false;
+server float rss_fx_recolour_sat   = 0.85;
+server float rss_fx_recolour_val   = 1.0;
+server float rss_fx_recolour_reach = 140.0;
+
+server bool  rss_fx_rouse     = false;
+
+// Which tier a sweep sets. TRUE means the sweep's own colour picks the rung --
+// a blue sweep makes blue monsters, the same band that turned the fog blue.
+// FALSE falls back to the signed step above, for a sweep that should promote or
+// demote whatever it finds regardless of colour.
+server bool  rss_fx_tier_bycolour = true;
+
+// Call Actor.OnSweepCrossed on what the front reaches. On by default, but
+// skipped entirely when nothing that overrides the hook is loaded -- otherwise
+// a sweep with no monster mod present would walk every actor in the level to
+// call an empty function on each. Force it on if some OTHER mod overrides the
+// hook and RS_Sweeps has no way to know.
+server bool  rss_fx_crossed        = true;
+server bool  rss_fx_crossed_always = false;
+
+// ---- glow ----
+server bool  rss_fx_glow       = false;
+server float rss_fx_glow_wall  = 96.0;    // how far the wall glow reaches, 0 = leave walls
+server float rss_fx_glow_flat  = 140.0;   // the flat-edge glow, 0 = leave flats
+
+// ---- sector light ----
+server bool  rss_fx_light      = false;
+server int   rss_fx_light_step = -32;     // signed: negative puts rooms out
+server int   rss_fx_light_floor = 0;
+server int   rss_fx_light_ceil  = 255;
+
+// ---- fog colour ----
+server bool  rss_fx_fogtint     = false;
+server float rss_fx_fogtint_mix = 0.7;
+
+// ---- darkness ----
+// Written through rsd_adjust rather than the engine directly: RS_Darkness
+// re-pushes the whole darkness state every tic from its own cvars, so a direct
+// write would be overwritten within a tic.
+server bool  rss_fx_dark      = false;
+server float rss_fx_dark_step = 8.0;      // signed
+server float rss_fx_dark_min  = 0.0;
+server float rss_fx_dark_max  = 224.0;
+
+// ---- colour drain ----
+server bool  rss_fx_desat       = false;
+server float rss_fx_desat_step  = 0.05;
+server bool  rss_fx_desat_reset = true;   // put it back when the band ends
+
+// ---- decorations ----
+server bool  rss_fx_decor           = false;
+server bool  rss_fx_decor_monsters  = false;
+server float rss_fx_decor_strength  = 0.8;
+server float rss_fx_decor_thickness = 1.2;
+server float rss_fx_decor_threshold = 0.2;
+server float rss_fx_decor_glow      = 2.5;
+
+// ---- which kills are worth a sweep ----
+//
+// Empty class name means any monster. Naming one catches that class and
+// everything descended from it, so one entry covers every colour of a family.
+server string rss_ev_class     = "";
+
+// Only monsters at or above this tier. Read as an inventory count, so it needs
+// no reference to the monster mod at all and is simply 0 when it is absent --
+// which means any floor above 0 also means "only tiered monsters".
+server int    rss_ev_tier_min  = 0;
+
+// Bosses only. Counts three things that do not agree with each other: the BOSS
+// flag, the BOSSDEATH flag, and sheer size -- a colour-tier boss is often
+// neither flagged nor scripted and is just enormous. 0 health disables the
+// size test.
+server bool   rss_ev_bossonly    = false;
+server int    rss_ev_boss_health = 1500;

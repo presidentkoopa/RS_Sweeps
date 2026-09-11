@@ -1,0 +1,10 @@
+// RS_Sweeps -- bands of light travelling through the world.
+//
+// Engine is UZDXREMA. The sweep natives and their per-band origin, shape,
+// draw mode, trail and lattice are UZDXREMA-only.
+version "4.12"
+
+#include "zscript/rss_util.zs"
+#include "zscript/rss_effects.zs"
+#include "zscript/rss_presets.zs"
+#include "zscript/rss_handler.zs"
