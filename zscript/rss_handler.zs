@@ -82,6 +82,12 @@ class RSS_Handler : EventHandler
 	private double mapMinX, mapMaxX, mapMinY, mapMaxY;
 	private bool mapMeasured;
 
+	// The middle of the box round every SECTOR'S CENTRE -- not round the
+	// vertexes. That is how GlowInTheDark finds its map centre, and a band
+	// carried over from it has to leave from the same spot it did there. The two
+	// boxes differ on any map with a long thin outer sector.
+	private Vector2 mapCentre;
+
 	// ---- lifecycle ---------------------------------------------------------
 
 	// Measured from the vertexes, once. Cheap even on a large map and it cannot
@@ -89,6 +95,22 @@ class RSS_Handler : EventHandler
 	void MeasureMap()
 	{
 		mapMeasured = true;
+
+		mapCentre = (0, 0);
+		if (Level && Level.Sectors.Size() > 0)
+		{
+			double cx0 = 1e30, cx1 = -1e30, cy0 = 1e30, cy1 = -1e30;
+			for (int i = 0; i < Level.Sectors.Size(); i++)
+			{
+				Vector2 c = Level.Sectors[i].centerspot;
+				if (c.x < cx0) cx0 = c.x;
+				if (c.x > cx1) cx1 = c.x;
+				if (c.y < cy0) cy0 = c.y;
+				if (c.y > cy1) cy1 = c.y;
+			}
+			mapCentre = ((cx0 + cx1) * 0.5, (cy0 + cy1) * 0.5);
+		}
+
 		if (!Level || Level.Vertexes.Size() == 0)
 		{
 			mapMinX = mapMinY = -4096; mapMaxX = mapMaxY = 4096;
@@ -221,6 +243,12 @@ class RSS_Handler : EventHandler
 		{
 			anchor = (RSS.GetF("rss_ambient_x"), RSS.GetF("rss_ambient_y"),
 				RSS.GetF("rss_ambient_z"));
+			anchorValid = true;
+			return;
+		}
+		else if (mode == 3)
+		{
+			anchor = (mapCentre.x, mapCentre.y, 0);
 			anchorValid = true;
 			return;
 		}
@@ -483,17 +511,49 @@ class RSS_Handler : EventHandler
 			}
 		}
 
+		// TRAIN TIMING -- GlowInTheDark's, carried over. One clock in map units,
+		// each band `spacing` behind the one before, and the cycle restarts only
+		// once the LAST band has covered the reach. Restarting when the leader
+		// ran out would cut the rest of the train off mid-room, which GITD did
+		// until its TrainClear learned about the gaps.
+		//
+		// Worked out from maptime rather than stepped, so WorldTick and UiTick
+		// get the same answer and it stands still while the game is paused.
+		bool train = (RSS.GetI("rss_ambient_timing", 0) == 1);
+		double spacing = 0.0, clock = 0.0;
+		if (train && amb > 0)
+		{
+			double tspeed = max(RSS.GetF("rss_train_speed", 128.0), 1.0);
+			spacing = max(RSS.GetI("rss_train_gap", 140), 0) * tspeed / 35.0;
+			double cycle = max(areach + spacing * (amb - 1), 1.0);
+			clock = (level.maptime * tspeed / 35.0) % cycle;
+		}
+
 		for (int i = 0; i < amb; i++)
 		{
-			// Staggered so they do not all arrive together -- one band leaving
-			// as the next arrives is what makes it read as continuous.
-			double phase = (level.maptime / 35.0) * aspeed + (double(i) / max(amb, 1));
-			double t = phase - floor(phase);
+			double r, t;
+			if (train)
+			{
+				r = clock - spacing * i;
+				t = clamp(r / max(areach, 1.0), 0.0, 1.0);
+				// A band that has not left yet is parked far off rather than
+				// drawn sitting on the origin. GITD's rule, GITD's number.
+				if (r < 0.0) r = -100000.0;
+			}
+			else
+			{
+				// Staggered so they do not all arrive together -- one band
+				// leaving as the next arrives is what makes it read as
+				// continuous.
+				double phase = (level.maptime / 35.0) * aspeed + (double(i) / max(amb, 1));
+				t = phase - floor(phase);
+				r = t * areach;
+			}
 
 			Level.SetSweepBandAt(i, aorg, ashape);
-			Level.SetSweepBand(i, t * areach, thick, soft,
-				BandColor(t), inten * FadeAt(t));
-			Level.SetSweepBandDraw(i, draw);
+			Level.SetSweepBand(i, r, StandingThick(i, thick), soft,
+				StandingColor(i, t), inten * FadeAt(t));
+			Level.SetSweepBandDraw(i, StandingDraw(i, draw));
 			Level.SetSweepBandFill(i, fill);
 			live++;
 		}
@@ -543,8 +603,38 @@ class RSS_Handler : EventHandler
 	// mixed in, in which case the band crosses into it as it travels.
 	clearscope Color BandColor(double t) const
 	{
+		return MixToward(RSS.RGB("rss_col", 120, 200, 255), t);
+	}
+
+	// STANDING BAND i. With the per-band table off these are exactly the shared
+	// values. On, each band takes its own colour, and its own thickness and
+	// draw mode wherever the table says something other than 0. The second
+	// colour still mixes in on top, so a table and a colour cross compose.
+	clearscope Color StandingColor(int i, double t) const
+	{
+		if (!RSS.GetB("rss_perband", false)) return BandColor(t);
+		return MixToward(RSS.Packed("rss_band_col" .. (i + 1)), t);
+	}
+
+	clearscope double StandingThick(int i, double shared) const
+	{
+		if (!RSS.GetB("rss_perband", false)) return shared;
+		int t = RSS.GetI("rss_band_thick" .. (i + 1), 0);
+		return (t > 0) ? double(t) : shared;
+	}
+
+	clearscope int StandingDraw(int i, int shared) const
+	{
+		if (!RSS.GetB("rss_perband", false)) return shared;
+		int d = RSS.GetI("rss_band_draw" .. (i + 1), 0);
+		return (d > 0) ? clamp(d, DR_ADD, DR_CRUSH) : shared;
+	}
+
+	// `a`, crossing into the second colour as the band travels -- or just `a`
+	// when nothing is mixed in.
+	clearscope Color MixToward(Color a, double t) const
+	{
 		double mix = clamp(RSS.GetF("rss_col_mix", 0.0), 0.0, 1.0);
-		Color a = RSS.RGB("rss_col", 120, 200, 255);
 		if (mix <= 0.0) return a;
 
 		Color b = RSS.RGB("rss_col2", 255, 90, 160);

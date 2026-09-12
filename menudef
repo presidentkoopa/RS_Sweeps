@@ -21,6 +21,7 @@ OptionValue "RSS_Preset"
 	18, "Sweep -- north to south"
 	19, "Purge -- takes the light with it"
 	20, "Curtain -- you cannot see past it"
+	21, "Unison -- a train of gold"
 }
 
 OptionValue "RSS_Shape"
@@ -48,6 +49,21 @@ OptionValue "RSS_Origin"
 	0, "Map origin"
 	1, "Follows you"
 	2, "Fixed point below"
+	3, "Map centre"
+}
+
+OptionValue "RSS_Timing"
+{
+	0, "Spread -- evenly round one cycle"
+	1, "Train -- one clock, fixed gaps"
+}
+
+OptionValue "RSS_DrawShared"
+{
+	0, "Shared -- as The Band says"
+	1, "Add -- a band of light"
+	2, "Lift -- raises what is there"
+	3, "Crush -- a band of DARK"
 }
 
 OptionValue "RSS_Fill"
@@ -80,6 +96,7 @@ OptionMenu "RSSMain"
 	StaticText ""
 	Submenu "Sources -- what starts one", "RSSSources"
 	Submenu "The Band", "RSSBand"
+	Submenu "Each band -- a table of eight", "RSSBands"
 	Submenu "Colour", "RSSColor"
 	Submenu "Lattice", "RSSFill"
 	Submenu "Effects -- what a sweep DOES", "RSSFx"
@@ -101,6 +118,14 @@ OptionMenu "RSSSources"
 	Slider "How many", "rss_ambient_count", 0, 8, 1, 0
 	Slider "Speed", "rss_ambient_speed", 0.0, 2.0, 0.01, 2
 	Slider "How far they travel", "rss_ambient_reach", 128, 4096, 32, 0
+	Option "Timing", "rss_ambient_timing", "RSS_Timing"
+	Slider "  Train speed, units a second", "rss_train_speed", 16, 1024, 8, 0
+	Slider "  Train gap, tics", "rss_train_gap", 0, 350, 5, 0
+	StaticText "Spread uses the Speed above, in cycles a second.", "gray"
+	StaticText "Train ignores it: one clock in map units, each", "gray"
+	StaticText "band leaving a fixed number of tics after the one", "gray"
+	StaticText "before, and the cycle restarts only once the last", "gray"
+	StaticText "band has covered the reach. GlowInTheDark's timing.", "gray"
 	Option "Shape", "rss_ambient_shape", "RSS_Shape"
 	StaticText "The four SWEEP shapes are one front crossing the", "gold"
 	StaticText "whole map. They ignore the origin and reach below", "gold"
@@ -165,15 +190,64 @@ OptionMenu "RSSBand"
 	StaticText "black is darkness you cannot see into. Four", "gray"
 	StaticText "presets are set up this way already.", "gray"
 	StaticText ""
-	Slider "Wake", "rss_trail", -8.0, 8.0, 0.1, 1
+	Slider "Wake", "rss_trail", -512, 512, 4, 0
 	StaticText "0 is a symmetric band. Either side of that", "gray"
 	StaticText "stretches it behind or ahead, so it reads as", "gray"
 	StaticText "travelling rather than as appearing.", "gray"
+	StaticText "Map units, and it only shows once it is LONGER", "gold"
+	StaticText "than the thickness -- shorter and the band stays", "gold"
+	StaticText "symmetric.", "gold"
 	StaticText ""
 	Slider "Fade out over", "rss_fade", 0.0, 0.95, 0.05, 2
 	StaticText "How much of the travel is spent fading. 0 means", "gray"
 	StaticText "the band stops at full brightness, which reads as", "gray"
 	StaticText "being switched off.", "gray"
+}
+
+OptionMenu "RSSBands"
+{
+	Title "Each Band"
+	StaticText "Off, every standing band wears the one colour,", "gray"
+	StaticText "thickness and draw mode. On, each takes its own", "gray"
+	StaticText "from here -- a wide downbeat, narrow ticks, one", "gray"
+	StaticText "band that crushes instead of adding.", "gray"
+	StaticText "Thickness 0 and Shared mean the value on The Band.", "gray"
+	StaticText "Fired bands and the ping always use the shared ones.", "gray"
+	StaticText ""
+	Option "Each band its own", "rss_perband", "OnOff"
+	StaticText ""
+	StaticText "BAND 1", "white"
+	ColorPicker "  Colour", "rss_band_col1"
+	Slider "  Thickness", "rss_band_thick1", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw1", "RSS_DrawShared"
+	StaticText "BAND 2", "white"
+	ColorPicker "  Colour", "rss_band_col2"
+	Slider "  Thickness", "rss_band_thick2", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw2", "RSS_DrawShared"
+	StaticText "BAND 3", "white"
+	ColorPicker "  Colour", "rss_band_col3"
+	Slider "  Thickness", "rss_band_thick3", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw3", "RSS_DrawShared"
+	StaticText "BAND 4", "white"
+	ColorPicker "  Colour", "rss_band_col4"
+	Slider "  Thickness", "rss_band_thick4", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw4", "RSS_DrawShared"
+	StaticText "BAND 5", "white"
+	ColorPicker "  Colour", "rss_band_col5"
+	Slider "  Thickness", "rss_band_thick5", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw5", "RSS_DrawShared"
+	StaticText "BAND 6", "white"
+	ColorPicker "  Colour", "rss_band_col6"
+	Slider "  Thickness", "rss_band_thick6", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw6", "RSS_DrawShared"
+	StaticText "BAND 7", "white"
+	ColorPicker "  Colour", "rss_band_col7"
+	Slider "  Thickness", "rss_band_thick7", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw7", "RSS_DrawShared"
+	StaticText "BAND 8", "white"
+	ColorPicker "  Colour", "rss_band_col8"
+	Slider "  Thickness", "rss_band_thick8", 0, 512, 2, 0
+	Option "  Draw mode", "rss_band_draw8", "RSS_DrawShared"
 }
 
 OptionMenu "RSSColor"

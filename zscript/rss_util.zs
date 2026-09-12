@@ -90,4 +90,13 @@ class RSS
 			clamp(GetI(pre .. "_g", dg), 0, 255),
 			clamp(GetI(pre .. "_b", db), 0, 255));
 	}
+
+	// A `color` cvar, read packed. Same rule: alpha 255. Split by hand because
+	// Color(int) does not convert on this engine -- it compiles and then fails
+	// at load, which GlowInTheDark paid for once already.
+	clearscope static Color Packed(String n, int def = 0xFFFFFF)
+	{
+		int p = GetI(n, def);
+		return Color(255, (p >> 16) & 255, (p >> 8) & 255, p & 255);
+	}
 }

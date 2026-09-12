@@ -10,10 +10,29 @@ class RSS_Presets
 {
 	// How many Apply knows about. Kept beside them so adding one and
 	// forgetting this is a compile-visible mistake rather than a silent one.
-	const COUNT = 21;
+	const COUNT = 22;
 
 	static void F(String n, double v) { let c = CVar.FindCVar(n); if (c) c.SetFloat(v); }
 	static void I(String n, int v)    { let c = CVar.FindCVar(n); if (c) c.SetInt(v); }
+	// Bools through SetInt, as GlowInTheDark's presets write them. The engine's
+	// CVar has no SetBool. Not called B: identifiers are case-insensitive and
+	// RGB below has a parameter named b.
+	static void Flag(String n, bool v) { let c = CVar.FindCVar(n); if (c) c.SetInt(v ? 1 : 0); }
+
+	// The train: one clock in map units a second, and tics between bands.
+	static void Train(double speed, int gap)
+	{
+		F("rss_train_speed", speed); I("rss_train_gap", gap);
+	}
+
+	// One row of the per-band table. Colour is packed 0xRRGGBB; thickness and
+	// draw 0 mean "the shared value".
+	static void BandSlot(int n, int rgb, int thick, int draw)
+	{
+		I("rss_band_col" .. n, rgb);
+		I("rss_band_thick" .. n, thick);
+		I("rss_band_draw" .. n, draw);
+	}
 
 	static void RGB(String pre, int r, int g, int b)
 	{
@@ -78,6 +97,9 @@ class RSS_Presets
 		RGB("rss_fill", 255, 255, 255);
 		F("rss_col_mix", 0.0);
 		I("rss_ambient_org", 1);
+		I("rss_ambient_timing", 0);
+		Train(128.0, 140);
+		Flag("rss_perband", false);
 	}
 
 	// ---- WALLS YOU CANNOT SEE THROUGH ---------------------------------------
@@ -232,7 +254,60 @@ class RSS_Presets
 		case 18: Sweepback();    break;
 		case 19: Purge();        break;
 		case 20: Curtain();      break;
+		case 21: Unison();       break;
 		}
+	}
+
+	// ---- UNISON -------------------------------------------------------------
+	//
+	// GlowInTheDark's Neon Unison band, carried over number for number from
+	// PresetProfile.zs in the Radiance Control Panel pk3. ONLY THE BAND. The
+	// cool lanes it crosses, the fog, the darkness and the bloom belong to
+	// RS_GlowInTheDark, RS_Fog, RS_Darkness and the engine, and a sweep preset
+	// reaching into those would be this mod switching other mods on.
+	//
+	// Eight rings leaving the map centre on one clock: 128 units a second, 140
+	// tics apart, so 512 units between bands. The downbeat is 260 wide and the
+	// rest are 110-unit ticks. The fifth is a hole -- a crush band, 150 wide, so
+	// a front of darkness crosses the room where the light did, and the other
+	// seven read as a bar instead of a strobe.
+	//
+	// The colour walks an ARCH, not a line: near white on the downbeat, down
+	// through gold to deep orange at band 4, and back up to cream at band 8,
+	// which hands off to band 1 with no jump.
+	//
+	// Softness 1.6 is crisp -- a tick needs an edge. No fade: every band runs the
+	// whole reach at full strength, and the cycle restarts only when the last
+	// one has crossed it.
+	//
+	// The 60 wake is carried as written. The shader only stretches a band when
+	// the wake is longer than its thickness, so at these widths it draws
+	// symmetric -- exactly as it does in GlowInTheDark.
+	static void Unison()
+	{
+		Band(110.0, 1.6, 1.30, 60.0, 1, 0.0);
+		Ambient(8, 0.35, 4096.0, 1);
+		I("rss_ambient_org", 3);          // the map centre, which does not move
+		I("rss_ambient_timing", 1);
+		Train(128.0, 140);
+
+		Flag("rss_perband", true);
+		BandSlot(1, 0xFFF2D8, 260, 1);    // the downbeat
+		BandSlot(2, 0xFFC24A, 110, 1);
+		BandSlot(3, 0xFFA020, 110, 1);
+		BandSlot(4, 0xFF7A12, 110, 1);    // the far point of the arch
+		BandSlot(5, 0x07131C, 150, 3);    // the rest: crush, so this is a swatch
+		BandSlot(6, 0xFF8C1E, 110, 1);
+		BandSlot(7, 0xFFB43A, 110, 1);
+		BandSlot(8, 0xFFD86E, 110, 1);    // and back, to hand off to band 1
+
+		// THE LATTICE AS A RULER. Diamonds 96 apart, every fourth line bolder,
+		// nothing drifting, lines only. Painted, never in the air: the air
+		// lattice has no solution for a ring, so any air value here would be a
+		// number that reads as doing something and does nothing.
+		Fill(1, 96.0, 96.0, 2.5, 0.9, 0.0, 0.0);
+		FillMotion(45.0, 0.0, 4.0, 2.2, 0.0, 0.0, 0.0, 0);
+		RGB("rss_fill", 255, 208, 138);   // warm: the ruler belongs to the light
 	}
 
 	// ---- off ---------------------------------------------------------------

@@ -39,11 +39,26 @@ server int   rss_ambient_count = 2;
 server float rss_ambient_speed = 0.35;   // cycles per second
 server float rss_ambient_reach = 900.0;  // how far a band travels before restarting
 server int   rss_ambient_shape = 1;      // 1 ring, 2 bars along X, 3 bars along Y, 4 shell, 5 rising plane
-server int   rss_ambient_org   = 1;      // 0 map origin, 1 follows you, 2 fixed below
+server int   rss_ambient_org   = 1;      // 0 map origin, 1 follows you, 2 fixed below, 3 map centre
 
 server float rss_ambient_x     = 0.0;
 server float rss_ambient_y     = 0.0;
 server float rss_ambient_z     = 0.0;
+
+// HOW THE STANDING BANDS ARE SPACED.
+//
+// 0 SPREAD: the bands share one cycle and sit evenly round it, so there is
+// always one somewhere between you and the reach. rss_ambient_speed is in
+// cycles a second.
+//
+// 1 TRAIN: one clock in map units a second, and each band leaves a fixed number
+// of tics after the one before. The cycle restarts only once the LAST band has
+// covered the reach, so no band vanishes mid-room because its leader ran out of
+// travel. This is GlowInTheDark's sweep timing, carried over whole so that its
+// Neon Unison band could come with it.
+server int   rss_ambient_timing = 0;
+server float rss_train_speed    = 128.0;  // map units a second
+server int   rss_train_gap      = 140;    // tics between one band leaving and the next
 
 // A ping from you. One band, restarting on an interval rather than cycling
 // continuously, so it reads as a device rather than as the room.
@@ -68,7 +83,10 @@ server int   rss_ev_slots      = 4;      // how many of the eight events may hol
 server float rss_thickness     = 26.0;   // world units of full strength
 server float rss_softness      = 0.55;   // falloff exponent past the thickness
 server float rss_intensity     = 1.30;
-server float rss_trail         = 0.0;    // wake length, signed; 0 = symmetric
+// Wake, in map units, signed; 0 = symmetric. The shader only stretches a band
+// when this is LONGER than the band's thickness -- shorter, and it stays
+// symmetric. See SweepBandAttenAt in main.fp.
+server float rss_trail         = 0.0;
 server int   rss_draw          = 1;      // 1 add, 2 lift, 3 crush
 
 // Fade out as the band reaches the end of its travel, so it does not simply
@@ -86,6 +104,45 @@ server float rss_col_mix       = 0.0;
 server int   rss_col2_r        = 255;
 server int   rss_col2_g        = 90;
 server int   rss_col2_b        = 160;
+
+// ------------------------------------------------------------- each band --
+//
+// Off, every standing band wears the one colour, thickness and draw mode above.
+// On, standing band N takes its own from here -- which is what lets a train be
+// a bar of music rather than eight copies of one note: a wide downbeat, narrow
+// ticks, one band that crushes instead of adding.
+//
+// Thickness and draw 0 mean "use the shared value", so a table that only wants
+// its own colours says nothing else. Fired bands and the ping always use the
+// shared values; this table is for the standing bands.
+//
+// The colours default to Neon Unison's arch -- near white, down through gold
+// to deep orange at band 4, and back up to cream at band 8.
+server bool  rss_perband       = false;
+server color rss_band_col1     = "ff f2 d8";
+server color rss_band_col2     = "ff c2 4a";
+server color rss_band_col3     = "ff a0 20";
+server color rss_band_col4     = "ff 7a 12";
+server color rss_band_col5     = "07 13 1c";
+server color rss_band_col6     = "ff 8c 1e";
+server color rss_band_col7     = "ff b4 3a";
+server color rss_band_col8     = "ff d8 6e";
+server int   rss_band_thick1   = 0;
+server int   rss_band_thick2   = 0;
+server int   rss_band_thick3   = 0;
+server int   rss_band_thick4   = 0;
+server int   rss_band_thick5   = 0;
+server int   rss_band_thick6   = 0;
+server int   rss_band_thick7   = 0;
+server int   rss_band_thick8   = 0;
+server int   rss_band_draw1    = 0;
+server int   rss_band_draw2    = 0;
+server int   rss_band_draw3    = 0;
+server int   rss_band_draw4    = 0;
+server int   rss_band_draw5    = 0;
+server int   rss_band_draw6    = 0;
+server int   rss_band_draw7    = 0;
+server int   rss_band_draw8    = 0;
 
 // --------------------------------------------------------------- lattice --
 //
