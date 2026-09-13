@@ -14,10 +14,9 @@ class RSS_Presets
 
 	static void F(String n, double v) { let c = CVar.FindCVar(n); if (c) c.SetFloat(v); }
 	static void I(String n, int v)    { let c = CVar.FindCVar(n); if (c) c.SetInt(v); }
-	// Bools through SetInt, as GlowInTheDark's presets write them. The engine's
-	// CVar has no SetBool. Not called B: identifiers are case-insensitive and
-	// RGB below has a parameter named b.
-	static void Flag(String n, bool v) { let c = CVar.FindCVar(n); if (c) c.SetInt(v ? 1 : 0); }
+	// Bools through SetBool, as GlowInTheDark's presets write them. Not called
+	// B: identifiers are case-insensitive and RGB below has a parameter named b.
+	static void Flag(String n, bool v) { let c = CVar.FindCVar(n); if (c) c.SetBool(v); }
 
 	// The train: one clock in map units a second, and tics between bands.
 	static void Train(double speed, int gap)
@@ -40,6 +39,11 @@ class RSS_Presets
 	}
 
 	// The band itself.
+	//
+	// THE WAKE IS IN MAP UNITS, and the shader only stretches a band once it is
+	// LONGER than the thickness (SweepBandAttenAt in main.fp) -- shorter and the
+	// band stays symmetric. So every wake below is written against its own
+	// band's thickness, and 0 where the look wants none.
 	static void Band(double thickness, double softness, double intensity,
 		double trail, int draw, double fade)
 	{
@@ -55,7 +59,10 @@ class RSS_Presets
 		F("rss_ambient_reach", reach); I("rss_ambient_shape", shape);
 	}
 
-	// What a fired band does.
+	// What a fired band does. SPEED IS TIME: the band always travels exactly
+	// `reach`, over `life` / `speed` seconds. The presets with a speed other
+	// than 1 were retuned when that changed, so each still covers the distance
+	// in the time it always did.
 	static void Event(double life, double reach, double speed, int shape)
 	{
 		F("rss_ev_life", life);   F("rss_ev_reach", reach);
@@ -161,9 +168,9 @@ class RSS_Presets
 	// out of it before they arrive.
 	static void WallOfFog()
 	{
-		Band(220.0, 2.2, 1.0, 1.2, 3, 0.35);
+		Band(220.0, 2.2, 1.0, 264.0, 3, 0.35);
 		Ambient(1, 0.10, 1800.0, 2);
-		Event(2.6, 1500.0, 0.9, 2);
+		Event(2.34, 1350.0, 0.9, 2);
 		RGB("rss_col", 150, 155, 165);
 		RGB("rss_fill", 140, 146, 158);
 		Fill(3, 1.0, 1.0, 1.0, 0.2, 1.0, 0.62);
@@ -177,16 +184,23 @@ class RSS_Presets
 	// abs(), so they are two planes moving apart from the middle -- a split,
 	// not a sweep.
 	//
-	// A signed shape ignores the origin and reach settings. The handler puts
-	// the band off the near edge and gives it the map's own span, because a
-	// sweep that starts in the middle or stops halfway is not one.
+	// A signed shape ignores the reach setting: the handler gives it the map's
+	// own span, because a sweep that stops halfway is not one. The origin
+	// setting still picks WHICH crossing -- "follows you" starts the front at
+	// your feet, anything else puts it off the near edge. Base() leaves it
+	// following you, so every preset here sets the map centre (3) for the edge
+	// crossing these are written as.
+	//
+	// Switch the timing to Once and any of these is a single slow pass, sent at
+	// map start and by the "Send a sweep" key, with the place changed behind it.
 
 	// The plain one. A single front crossing the level west to east, slowly
 	// enough that you watch it come.
 	static void Sweep()
 	{
-		Band(70.0, 1.0, 1.1, 1.4, 1, 0.15);
+		Band(70.0, 1.0, 1.1, 96.0, 1, 0.15);
 		Ambient(1, 0.10, 4096.0, 6);
+		I("rss_ambient_org", 3);
 		RGB("rss_col", 120, 200, 255);
 		RGB("rss_col2", 255, 140, 60);
 		F("rss_col_mix", 0.8);
@@ -196,8 +210,9 @@ class RSS_Presets
 	// to west so two of these running together cross.
 	static void Sweepback()
 	{
-		Band(70.0, 1.0, 1.1, 1.4, 1, 0.15);
+		Band(70.0, 1.0, 1.1, 96.0, 1, 0.15);
 		Ambient(1, 0.10, 4096.0, 9);
+		I("rss_ambient_org", 3);
 		RGB("rss_col", 255, 140, 60);
 		RGB("rss_col2", 120, 200, 255);
 		F("rss_col_mix", 0.8);
@@ -205,11 +220,13 @@ class RSS_Presets
 
 	// A front that takes the light with it. Crush, so the level goes dark
 	// behind it rather than lighting up -- pair it with the darkness or the
-	// retier effect and it is a wave that changes the map as it passes.
+	// retier effect and it is a wave that changes the map as it passes. The
+	// 220 wake is twice the band, so the dark drags out behind the front.
 	static void Purge()
 	{
-		Band(110.0, 1.4, 1.2, 2.0, 3, 0.1);
+		Band(110.0, 1.4, 1.2, 220.0, 3, 0.1);
 		Ambient(1, 0.07, 4096.0, 6);
+		I("rss_ambient_org", 3);
 		RGB("rss_col", 20, 14, 26);
 		RGB("rss_fill", 8, 6, 12);
 		Fill(3, 1.0, 1.0, 1.0, 0.2, 1.0, 0.75);
@@ -221,6 +238,7 @@ class RSS_Presets
 	{
 		Band(200.0, 1.8, 1.0, 0.0, 3, 0.08);
 		Ambient(1, 0.06, 4096.0, 7);
+		I("rss_ambient_org", 3);
 		RGB("rss_col", 15, 15, 20);
 		RGB("rss_fill", 0, 0, 0);
 		Fill(3, 1.0, 1.0, 1.0, 0.2, 1.0, 1.0);
@@ -341,9 +359,13 @@ class RSS_Presets
 
 	// A ping from you and nothing else -- equipment, not weather. Ambient is
 	// deliberately off here; switch it on for both at once.
+	//
+	// THE PING ITSELF IS A SOURCE SWITCH, and presets never touch those, so
+	// this shows nothing but fired bands until Sources > Ping is on. The menu
+	// says so beside the preset.
 	static void Sonar()
 	{
-		Band(22.0, 0.45, 1.15, 0.6, 1, 0.55);
+		Band(22.0, 0.45, 1.15, 0.0, 1, 0.55);
 		Ambient(0, 0.35, 900.0, 1);
 		RGB("rss_col", 120, 255, 220);
 		Fill(2, 90.0, 90.0, 2.0, 1.2, 0.6, 0.0);
@@ -355,9 +377,9 @@ class RSS_Presets
 	// explosion, hard and brief.
 	static void Shockwave()
 	{
-		Band(20.0, 0.35, 1.7, 0.9, 1, 0.6);
+		Band(20.0, 0.35, 1.7, 0.0, 1, 0.6);
 		Ambient(0, 0.35, 900.0, 1);
-		Event(0.75, 620.0, 1.6, 1);
+		Event(1.2, 992.0, 1.6, 1);          // 992 units in 0.75 s, as it always was
 		RGB("rss_col", 255, 220, 150);
 	}
 
@@ -365,7 +387,7 @@ class RSS_Presets
 	// band reads as travelling rather than as appearing.
 	static void Corridor()
 	{
-		Band(30.0, 0.6, 1.0, 2.4, 1, 0.35);
+		Band(30.0, 0.6, 1.0, 72.0, 1, 0.35);
 		Ambient(3, 0.30, 1500.0, 2);
 		RGB("rss_col", 190, 210, 255);
 		RGB("rss_col2", 90, 120, 255);
@@ -423,7 +445,7 @@ class RSS_Presets
 	// second colour as the band travels. A signal breaking up.
 	static void Interference()
 	{
-		Band(80.0, 0.9, 1.25, 1.2, 1, 0.4);
+		Band(80.0, 0.9, 1.25, 96.0, 1, 0.4);
 		Ambient(3, 0.42, 1000.0, 1);
 		RGB("rss_col", 120, 255, 180);
 		RGB("rss_col2", 255, 60, 200);
@@ -437,9 +459,9 @@ class RSS_Presets
 	// throw rings through a room that is already pulsing.
 	static void Bloodrush()
 	{
-		Band(34.0, 0.5, 1.8, 1.4, 1, 0.5);
+		Band(34.0, 0.5, 1.8, 48.0, 1, 0.5);
 		Ambient(3, 0.5, 1000.0, 1);
-		Event(0.9, 800.0, 1.8, 4);
+		Event(1.62, 1440.0, 1.8, 4);        // 1440 units in 0.9 s
 		RGB("rss_col", 255, 60, 50);
 		RGB("rss_col2", 255, 170, 60);
 		F("rss_col_mix", 0.6);
@@ -453,9 +475,9 @@ class RSS_Presets
 	// it worse than this.
 	static void Carnival()
 	{
-		Band(70.0, 1.0, 1.5, 1.8, 1, 0.4);
+		Band(70.0, 1.0, 1.5, 128.0, 1, 0.4);
 		Ambient(5, 0.55, 1400.0, 4);
-		Event(1.2, 900.0, 1.5, 1);
+		Event(1.8, 1350.0, 1.5, 1);         // 1350 units in 1.2 s
 		RGB("rss_col", 255, 120, 40);
 		RGB("rss_col2", 60, 140, 255);
 		F("rss_col_mix", 0.85);

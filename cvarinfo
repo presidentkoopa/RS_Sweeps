@@ -37,8 +37,8 @@ nosave int   rss_preset_applied = -1;
 server bool  rss_ambient       = true;
 server int   rss_ambient_count = 2;
 server float rss_ambient_speed = 0.35;   // cycles per second
-server float rss_ambient_reach = 900.0;  // how far a band travels before restarting
-server int   rss_ambient_shape = 1;      // 1 ring, 2 bars along X, 3 bars along Y, 4 shell, 5 rising plane
+server float rss_ambient_reach = 900.0;  // how far a band travels; the sweeps take the map's own
+server int   rss_ambient_shape = 1;      // 1 ring, 2 bars along X, 3 bars along Y, 4 shell, 5 rising plane, 6-9 sweep toward +X +Y -X -Y
 server int   rss_ambient_org   = 1;      // 0 map origin, 1 follows you, 2 fixed below, 3 map centre
 
 server float rss_ambient_x     = 0.0;
@@ -56,6 +56,12 @@ server float rss_ambient_z     = 0.0;
 // covered the reach, so no band vanishes mid-room because its leader ran out of
 // travel. This is GlowInTheDark's sweep timing, carried over whole so that its
 // Neon Unison band could come with it.
+//
+// 2 ONCE: one pass, then nothing until it is sent again -- by a new map, or by
+// the rss_sweep network event (bound as rss_sweep_now in KEYCONF). A pass
+// takes 1/speed seconds and the bands leave the same fraction apart Spread
+// uses. The only standing timing that runs the Effects: a looping band would
+// re-apply them every cycle.
 server int   rss_ambient_timing = 0;
 server float rss_train_speed    = 128.0;  // map units a second
 server int   rss_train_gap      = 140;    // tics between one band leaving and the next
@@ -63,18 +69,17 @@ server int   rss_train_gap      = 140;    // tics between one band leaving and t
 // A ping from you. One band, restarting on an interval rather than cycling
 // continuously, so it reads as a device rather than as the room.
 server bool  rss_ping          = false;
-server float rss_ping_every    = 3.0;    // seconds between pings
-server float rss_ping_speed    = 1.1;    // how fast it travels out
+server float rss_ping_every    = 3.0;    // seconds between pings, or longer if it is still travelling
+server float rss_ping_speed    = 1.1;    // 1 crosses the reach in exactly the interval
 server float rss_ping_reach    = 1100.0;
 
 // The world answering. Each of these spawns a band at the thing that happened.
 server bool  rss_ev_kill       = true;
 server bool  rss_ev_explode    = true;
 server bool  rss_ev_hurt       = false;  // when YOU take damage
-server bool  rss_ev_fire       = false;  // every shot -- busy on a chaingun
-server float rss_ev_life       = 1.1;    // seconds a fired band lives
-server float rss_ev_reach      = 700.0;
-server float rss_ev_speed      = 1.0;
+server float rss_ev_life       = 1.1;    // seconds a fired band lives, at speed 1
+server float rss_ev_reach      = 700.0;  // how far it travels; the sweeps take the map's own
+server float rss_ev_speed      = 1.0;    // divides the life: the band always travels its reach
 server int   rss_ev_shape      = 1;
 server int   rss_ev_slots      = 4;      // how many of the eight events may hold
 
@@ -87,7 +92,7 @@ server float rss_intensity     = 1.30;
 // when this is LONGER than the band's thickness -- shorter, and it stays
 // symmetric. See SweepBandAttenAt in main.fp.
 server float rss_trail         = 0.0;
-server int   rss_draw          = 1;      // 1 add, 2 lift, 3 crush
+server int   rss_draw          = 1;      // 1 add, 2 lift, 3 crush, 4 recolour the glow it covers
 
 // Fade out as the band reaches the end of its travel, so it does not simply
 // stop existing at full brightness.
@@ -202,8 +207,6 @@ server float rss_fx_fog_speed    = 200.0;
 server float rss_fx_fog_life     = 0.8;
 
 server bool  rss_fx_recolour  = false;
-server float rss_fx_recolour_sat   = 0.85;
-server float rss_fx_recolour_val   = 1.0;
 server float rss_fx_recolour_reach = 140.0;
 
 server bool  rss_fx_rouse     = false;
@@ -234,13 +237,20 @@ server int   rss_fx_light_floor = 0;
 server int   rss_fx_light_ceil  = 255;
 
 // ---- fog colour ----
+// Written through RS_Fog's nosave rsf_tint_r/g/b and rsf_tint_mix, which it
+// pushes in place of its own gradient while the mix is above 0. A direct
+// SetFogGradient was put back by RS_Fog's own push before a frame was drawn.
+// The mix returns to 0 when the last band ends and at every map change.
 server bool  rss_fx_fogtint     = false;
 server float rss_fx_fogtint_mix = 0.7;
 
 // ---- darkness ----
-// Written through rsd_adjust rather than the engine directly: RS_Darkness
-// re-pushes the whole darkness state every tic from its own cvars, so a direct
-// write would be overwritten within a tic.
+// Written through RS_Darkness's nosave rsd_sweep_offset, which it adds on top
+// of rsd_adjust -- never through rsd_adjust itself, a server cvar and the
+// player's own saved Amount, which a sweep used to change for good. Published
+// at most once a tic, back to 0 when the last band ends and at every map
+// change. An RS_Darkness without the offset cvar is treated as absent. The
+// limits are on where the darkness ends up, in rsd_adjust units.
 server bool  rss_fx_dark      = false;
 server float rss_fx_dark_step = 8.0;      // signed
 server float rss_fx_dark_min  = 0.0;
@@ -249,7 +259,7 @@ server float rss_fx_dark_max  = 224.0;
 // ---- colour drain ----
 server bool  rss_fx_desat       = false;
 server float rss_fx_desat_step  = 0.05;
-server bool  rss_fx_desat_reset = true;   // put it back when the band ends
+server bool  rss_fx_desat_reset = true;   // put it back when the last band ends (a map change always does)
 
 // ---- decorations ----
 server bool  rss_fx_decor           = false;
@@ -267,7 +277,9 @@ server string rss_ev_class     = "";
 
 // Only monsters at or above this tier. Read as an inventory count, so it needs
 // no reference to the monster mod at all and is simply 0 when it is absent --
-// which means any floor above 0 also means "only tiered monsters".
+// which means any floor above 0 also means "only tiered monsters". It counts
+// RS_ZomTierToken only: RS_MonsterMaster keeps its tier in a field and gives no
+// token, so those monsters never pass a floor above 0 until RS_Main mirrors it.
 server int    rss_ev_tier_min  = 0;
 
 // Bosses only. Counts three things that do not agree with each other: the BOSS

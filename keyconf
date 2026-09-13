@@ -1,0 +1,16 @@
+// RS_Sweeps -- keys.
+//
+// NO BOM IN THIS FILE: a UTF-8 byte order mark makes GZDoom read the first
+// alias name with the mark glued on, and the alias silently does nothing.
+//
+// SEND ONE SWEEP. With the standing timing on Once, this sends a single pass
+// across the level -- the only other thing that sends one is a new map. A
+// NETWORK event, not a console command, so every client starts the pass on the
+// same tic. Nothing is bound by default: a mod that helps itself to a key has
+// stolen one somebody already assigned.
+alias rss_sweep_now "netevent rss_sweep"
+
+// addmenukey needs a section to hang under, and its own heading keeps it from
+// disappearing into somebody else's block in Customize Controls.
+addkeysection "Sweeps" RSSweeps
+addmenukey "Send a sweep (Once timing)" rss_sweep_now

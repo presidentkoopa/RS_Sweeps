@@ -1,8 +1,11 @@
 // RS_Sweeps -- shared helpers.
 //
-// Same shape as GITD_Util, RSD's, RSF and RSFL. These mods merge eventually and
-// the copies collapse into one, which is only painless if they have not
-// drifted.
+// Modelled on GITD_Util and the helpers in RS_Darkness, RS_Fog and
+// RS_Flashlight. Those copies have since DRIFTED -- the names match, but the
+// arguments and the set of helpers do not (RSF.RGB takes no defaults, RSFL has
+// no setters, RSD keeps its helpers on the handler) -- so when these mods merge
+// the collapse is not mechanical. This is the shape to bring the others to:
+// GetF/GetI/GetB/GetS, SetF/SetI, RGB with defaults, Packed.
 
 class RSS
 {
@@ -46,8 +49,9 @@ class RSS
 	//
 	// The sweep itself never calls into any of them. Acting on what the front
 	// crosses goes through Actor.OnSweepCrossed, which every actor has. These
-	// checks exist so the MENU can say what is available and so an effect can
-	// be skipped rather than silently doing nothing.
+	// checks exist so an effect can say it has nothing to do -- and the walk
+	// over the level is skipped -- rather than silently doing nothing on every
+	// sector it crosses. The menu is static and does not use them.
 
 	// RS_Main -- the monster tier ladder. Unlocks the retier options.
 	clearscope static bool HasMonsterTiers()
@@ -68,21 +72,21 @@ class RSS
 		return CVar.FindCVar("rsf_enabled") != null;
 	}
 
-	// RS_GlowInTheDark -- unlocks the glow effects.
-	clearscope static bool HasGlow()
-	{
-		return CVar.FindCVar("gitd_enabled") != null;
-	}
-
-	// RS_Darkness -- unlocks the darkness effects.
+	// RS_Darkness, and specifically one that takes a sweep offset. An older
+	// RS_Darkness without rsd_sweep_offset could only be moved by writing the
+	// player's own saved Amount -- a server cvar, once per sector -- so it
+	// counts as absent and the darkness effect does nothing.
 	clearscope static bool HasDarkness()
 	{
-		return CVar.FindCVar("rsd_enabled") != null;
+		return CVar.FindCVar("rsd_sweep_offset") != null;
 	}
 
 	// ALWAYS alpha 255. A colour that loses its alpha is the most expensive bug
 	// in this family -- several draw paths gate on `.a > 0` and simply stop,
 	// with no error anywhere.
+	//
+	// The names are built from a prefix, so menu_lint is told them here.
+	// LINT-CVARS: rss_col_r rss_col_g rss_col_b rss_col2_r rss_col2_g rss_col2_b rss_fill_r rss_fill_g rss_fill_b
 	clearscope static Color RGB(String pre, int dr = 255, int dg = 255, int db = 255)
 	{
 		return Color(255,
@@ -100,3 +104,7 @@ class RSS
 		return Color(255, (p >> 16) & 255, (p >> 8) & 255, p & 255);
 	}
 }
+
+// Read by RS_Main, not here: RS_MonsterMaster.OnSweepCrossed looks these up by
+// name when a front reaches one of its monsters.
+// LINT-CVARS: rss_fx_tier rss_fx_tier_step rss_fx_tier_bycolour
