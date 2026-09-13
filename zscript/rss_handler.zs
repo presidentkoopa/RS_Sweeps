@@ -65,6 +65,13 @@ class RSS_Handler : EventHandler
 	const TM_TRAIN  = 1;
 	const TM_ONCE   = 2;
 
+	// The after-look's parked band -- see ParkRadius. Slot 0, because it is the
+	// slot a pass's lead band already held, so the hand-over from travelling to
+	// parked writes the same slot on consecutive tics and nothing is let go in
+	// between.
+	const PARK_SLOT = 0;
+	const PARK_PAST = 65536.0;
+
 	// ---- fired bands -------------------------------------------------------
 	//
 	// Parallel arrays rather than a class per band: there are at most eight,
@@ -96,6 +103,27 @@ class RSS_Handler : EventHandler
 	// Each standing band's front LAST tic, for the same threshold test the
 	// fired bands use.
 	private double stPrevFront[SLOTS];
+
+	// ---- the after-look ----------------------------------------------------
+	//
+	// Behind the line the world is different. The engine grades everything a
+	// band's front has already crossed, per pixel -- but only while that band is
+	// live. So a Once pass that has arrived leaves ONE band behind, parked past
+	// the far edge at brightness 0, and the look stays for the rest of the map.
+	// One is enough: every band of a pass shares its shape and origin and ends
+	// on the same line, so a second parked band would grade exactly the same
+	// ground and cost a slot the fired bands could have had.
+	//
+	// The geometry is taken when the pass ends and then held still. A pass
+	// following you moves with you while it travels; the line it leaves does
+	// not. Saved with the level, so a save loaded on this map keeps the look.
+	// Replaced by the next pass, dropped by a map change or by the timing
+	// leaving Once. Not a live band as far as the Effects are concerned -- they
+	// were told the pass ended, and put back what they hold as they always did.
+	private bool    parked;
+	private Vector3 parkOrigin;
+	private int     parkShape;
+	private double  parkReach;
 
 	// The slots the last UiTick push wrote, one bit each. UI SCOPE because it
 	// is written from UiTick, and it is the only record of which bands are
@@ -241,6 +269,9 @@ class RSS_Handler : EventHandler
 		// bands above. A new map sends one when Once is the timing -- the map
 		// starting is one of the two things that send it.
 		onceLive = false;
+		// A parked after-look belongs to this map. A save loaded on it keeps
+		// the look, the same as the glow and light a pass left in the sectors.
+		if (!e.IsSaveGame) parked = false;
 		anchorValid = false;
 		ResolveAnchor();
 		if (!e.IsSaveGame && RSS.GetB("rss_enabled", true) && StandingTiming() == TM_ONCE)
@@ -428,6 +459,9 @@ class RSS_Handler : EventHandler
 		// A pass already crossing is ended properly first, so an effect holding
 		// something for it lets go before the new front picks it up again.
 		if (onceLive) EndOncePass();
+		// The new pass REPLACES the line the last one left. Its own front
+		// carries the look again from where it starts.
+		parked = false;
 		onceBorn = level.maptime;
 		onceLive = true;
 		for (int i = 0; i < SLOTS; i++) stPrevFront[i] = 0.0;
@@ -442,6 +476,20 @@ class RSS_Handler : EventHandler
 		int n = max(StandingCount(), 1);
 		Vector3 org = StandingOrigin(StandingShape(), StandingPad(n));
 		for (int i = 0; i < n; i++) NotifyBandEnd(org);
+	}
+
+	// A pass that ARRIVED leaves its line behind while the after-look is on.
+	// Called before EndOncePass, while the pass's geometry still answers the
+	// way it did on its last travelling tic. A pass cut short -- the timing
+	// changed, the bands or the mod switched off under it -- leaves nothing.
+	void ParkOncePass(int amb)
+	{
+		int shape = StandingShape();
+		double pad = StandingPad(amb);
+		parkShape = shape;
+		parkOrigin = StandingOrigin(shape, pad);
+		parkReach = StandingReach(shape, pad);
+		parked = true;
 	}
 
 	// ---- firing ------------------------------------------------------------
@@ -728,10 +776,19 @@ class RSS_Handler : EventHandler
 		if (onceLive)
 		{
 			int amb = StandingCount();
-			if (StandingTiming() != TM_ONCE || amb <= 0
-				|| !RSS.GetB("rss_enabled", true) || OnceT(amb - 1, amb) >= 1.0)
+			bool onceOn = StandingTiming() == TM_ONCE && amb > 0
+				&& RSS.GetB("rss_enabled", true);
+			bool arrived = onceOn && OnceT(amb - 1, amb) >= 1.0;
+			if (!onceOn || arrived)
+			{
+				if (arrived && AfterLookOn()) ParkOncePass(amb);
 				EndOncePass();
+			}
 		}
+		// The line belongs to Once. Switch the timing away and a looping band
+		// takes its slot, so the look goes with it rather than waiting to come
+		// back the next time Once is picked.
+		if (parked && StandingTiming() != TM_ONCE) parked = false;
 
 		if (pingLive)
 		{
@@ -768,6 +825,44 @@ class RSS_Handler : EventHandler
 	clearscope bool FiredDrawn(int i, int amb, bool pingOn) const
 	{
 		return evLive[i] && i >= amb && !(pingOn && i == PING_SLOT);
+	}
+
+	// ---- the after-look ----------------------------------------------------
+
+	clearscope static bool AfterLookOn()
+	{
+		return RSS.GetB("rss_after", false);
+	}
+
+	// WHERE A FINISHED BAND WAITS, so the look it left stays and nothing of it
+	// shows.
+	//
+	// Brightness 0 already stops its light, its recolour and its lattice in the
+	// air: all three scale by the band's brightness in main.fp. The fog bow
+	// does not -- it reads only the draw mode and the radius, and a band is
+	// always uploaded with a draw mode. So a CROSSING is parked PARK_PAST beyond
+	// its reach, where no pixel on the map is anywhere near its line and every
+	// pixel is behind it. A ring, shell, bar or rising plane stays at its own
+	// reach: parked further out it would grade ground its front never crossed.
+	clearscope static double ParkRadius(int shape, double reach)
+	{
+		return IsCrossing(shape) ? reach + PARK_PAST : reach;
+	}
+
+	// THE LOOK IS ONE for every passed band, so it is pushed once, from Push,
+	// which UiTick runs -- its sliders move the picture while the menu is open.
+	// Only while the after-look is on: with it off this mod writes no look, so
+	// another caller's passed band keeps whatever look it set.
+	// LINT-UI-LIVE: rss_after rss_after_r rss_after_g rss_after_b rss_after_mix rss_after_darken rss_after_desat rss_after_soft
+	// LINT-CVARS: rss_after_r rss_after_g rss_after_b
+	clearscope void PushAfterLook()
+	{
+		Level.SetSweepPassedLook(
+			RSS.RGB("rss_after", 140, 160, 220),
+			RSS.GetF("rss_after_mix", 0.5),
+			RSS.GetF("rss_after_darken", 0.3),
+			RSS.GetF("rss_after_desat", 0.6),
+			RSS.GetF("rss_after_soft", 128.0));
 	}
 
 	// ---- the push ----------------------------------------------------------
@@ -807,6 +902,15 @@ class RSS_Handler : EventHandler
 		{
 			if (FiredDrawn(i, amb, pingOn)) want |= (1 << i);
 		}
+
+		// THE LINE A FINISHED ONCE PASS LEFT. Only under Once and only between
+		// passes -- a travelling pass carries the look in its own bands -- and
+		// only while nothing else draws in that slot: a fired band there wins,
+		// and the look comes back when it ends.
+		bool afterOn = AfterLookOn();
+		bool drawPark = afterOn && parked && timing == TM_ONCE && !onceLive
+			&& !(want & (1 << PARK_SLOT));
+		if (drawPark) want |= (1 << PARK_SLOT);
 		if (want == 0) return 0;
 
 		// The lattice is scene-wide rather than per band -- one pattern, and
@@ -830,6 +934,7 @@ class RSS_Handler : EventHandler
 			RSS.GetI("rss_fill_grad_axis", 0));
 		Level.SetSweepFillAir(RSS.GetF("rss_fill_air", 0.0));
 		Level.SetSweepTrail(RSS.GetF("rss_trail", 0.0));
+		if (afterOn) PushAfterLook();
 
 		int fill = RSS.GetI("rss_fill", 0);
 		int draw = clamp(RSS.GetI("rss_draw", DR_ADD), DR_ADD, DR_RECOLOUR);
@@ -874,6 +979,7 @@ class RSS_Handler : EventHandler
 			for (int i = 0; i < amb; i++)
 			{
 				double r, t;
+				bool darkBand = false;
 				if (timing == TM_TRAIN)
 				{
 					r = clock - spacing * i;
@@ -889,8 +995,21 @@ class RSS_Handler : EventHandler
 				{
 					// Parked before it leaves and after it arrives. The pass is
 					// over once the last one has.
+					//
+					// With the after-look on, an ARRIVED band waits on its end
+					// line instead, dark. Parked at -100000 it took its passed
+					// look with it, and the look slid back to the trailing
+					// band's front until the last one arrived. A band that has
+					// not left stays at -100000, which grades nothing: no pixel
+					// on a map is that far behind an origin.
 					t = OnceT(i, amb);
-					if (t < 0.0 || t >= 1.0)
+					if (t >= 1.0 && afterOn)
+					{
+						r = ParkRadius(ashape, areach);
+						t = 1.0;
+						darkBand = true;
+					}
+					else if (t < 0.0 || t >= 1.0)
 					{
 						r = -100000.0;
 						t = clamp(t, 0.0, 1.0);
@@ -909,9 +1028,12 @@ class RSS_Handler : EventHandler
 
 				Level.SetSweepBandAt(i, aorg, ashape);
 				Level.SetSweepBand(i, r, StandingThick(i, thick), soft,
-					StandingColor(i, t), inten * FadeAt(t));
+					StandingColor(i, t), darkBand ? 0.0 : inten * FadeAt(t));
 				Level.SetSweepBandDraw(i, StandingDraw(i, draw));
 				Level.SetSweepBandFill(i, fill);
+				// Only a Once pass leaves anything behind. A looping band would
+				// grade its whole reach and snap back every cycle.
+				Level.SetSweepBandPassed(i, (afterOn && timing == TM_ONCE) ? 1 : 0);
 			}
 		}
 
@@ -923,6 +1045,8 @@ class RSS_Handler : EventHandler
 				thick, soft, BandColor(pingT), inten * FadeAt(pingT));
 			Level.SetSweepBandDraw(PING_SLOT, draw);
 			Level.SetSweepBandFill(PING_SLOT, fill);
+			// Equipment, not a front: the ping leaves nothing behind it.
+			Level.SetSweepBandPassed(PING_SLOT, 0);
 		}
 
 		// ---- fired bands ----
@@ -936,6 +1060,23 @@ class RSS_Handler : EventHandler
 			Level.SetSweepBand(i, r, thick, soft, BandColor(t), inten * FadeAt(t));
 			Level.SetSweepBandDraw(i, draw);
 			Level.SetSweepBandFill(i, fill);
+			// A fired band grades what it passed only while it lives. The look
+			// does not fade out with the band: it goes when the band ends.
+			Level.SetSweepBandPassed(i, afterOn ? 1 : 0);
+		}
+
+		// ---- the parked line ----
+		// Brightness 0, and past the far edge for a crossing -- see ParkRadius.
+		// No lattice, and the shared draw mode, which at brightness 0 draws
+		// nothing whichever it is.
+		if (drawPark)
+		{
+			Level.SetSweepBandAt(PARK_SLOT, parkOrigin, parkShape);
+			Level.SetSweepBand(PARK_SLOT, ParkRadius(parkShape, parkReach),
+				thick, soft, BandColor(1.0), 0.0);
+			Level.SetSweepBandDraw(PARK_SLOT, draw);
+			Level.SetSweepBandFill(PARK_SLOT, 0);
+			Level.SetSweepBandPassed(PARK_SLOT, 1);
 		}
 
 		return want;
@@ -961,6 +1102,9 @@ class RSS_Handler : EventHandler
 			Level.SetSweepBandAt(i, (0, 0, 0), 0);
 			Level.SetSweepBandDraw(i, 0);
 			Level.SetSweepBandFill(i, 0);
+			// And its passed bit, or the slot handed back would keep grading
+			// the level behind a front that no longer exists.
+			Level.SetSweepBandPassed(i, 0);
 		}
 		if (all) Level.SetSweepTrail(0);
 	}

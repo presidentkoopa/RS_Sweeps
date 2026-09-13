@@ -269,6 +269,32 @@ server float rss_fx_decor_thickness = 1.2;
 server float rss_fx_decor_threshold = 0.2;
 server float rss_fx_decor_glow      = 2.5;
 
+// ------------------------------------------------------- behind the line --
+//
+// THE AFTER-LOOK. Everything a band's front has already crossed is graded per
+// pixel -- tinted, darkened, drained -- so the change follows the line exactly
+// rather than flipping a room when its centre is crossed. The per-sector
+// Effects above still do that, and still carry the gameplay; this is only the
+// picture.
+//
+// Standing bands on Once timing and fired bands. Never a looping band, which
+// would grade its whole reach and snap back every cycle. A Once pass that
+// arrives leaves one band parked past the far edge at brightness 0, so the
+// look stays for the rest of the map until the next pass is sent. A fired band
+// keeps it only while it lives.
+//
+// One look shared by every passed band. The engine grades the room's own light
+// only: glow, the bands, beams and fullbright things keep their colour. Off by
+// default.
+server bool  rss_after         = false;
+server int   rss_after_r       = 140;
+server int   rss_after_g       = 160;
+server int   rss_after_b       = 220;
+server float rss_after_mix     = 0.5;    // how far the light is multiplied toward the tint
+server float rss_after_darken  = 0.3;    // how much light is taken away
+server float rss_after_desat   = 0.6;    // how much colour is drained
+server float rss_after_soft    = 128.0;  // map units the look fades in over behind the front
+
 // ---- which kills are worth a sweep ----
 //
 // Empty class name means any monster. Naming one catches that class and

@@ -105,6 +105,7 @@ OptionMenu "RSSMain"
 	Submenu "Colour", "RSSColor"
 	Submenu "Lattice", "RSSFill"
 	Submenu "Effects -- what a sweep DOES", "RSSFx"
+	Submenu "Behind the line -- the after-look", "RSSAfter"
 }
 
 OptionMenu "RSSSources"
@@ -413,6 +414,47 @@ OptionMenu "RSSFx"
 	StaticText ""
 	StaticText "OTHER", "white"
 	Option "Wake what it passes", "rss_fx_rouse", "OnOff"
+}
+
+OptionMenu "RSSAfter"
+{
+	Title "Behind the Line"
+	StaticText "A front crosses the level, and behind the line", "gray"
+	StaticText "the world is different -- tinted, darker, drained.", "gray"
+	StaticText "Graded per pixel, so the change follows the line", "gray"
+	StaticText "exactly instead of flipping a room at a time.", "gray"
+	StaticText ""
+	StaticText "Standing bands on Once timing, and fired bands.", "gold"
+	StaticText "Never a looping band: it would grade its whole", "gold"
+	StaticText "reach and snap back every cycle.", "gold"
+	StaticText ""
+	Option "Enabled", "rss_after", "OnOff"
+	StaticText ""
+	StaticText "THE LOOK", "white"
+	Slider "Tint red", "rss_after_r", 0, 255, 5, 0
+	Slider "Tint green", "rss_after_g", 0, 255, 5, 0
+	Slider "Tint blue", "rss_after_b", 0, 255, 5, 0
+	Slider "Tint", "rss_after_mix", 0.0, 1.0, 0.05, 2
+	Slider "Darken", "rss_after_darken", 0.0, 1.0, 0.05, 2
+	Slider "Drain the colour", "rss_after_desat", 0.0, 1.0, 0.05, 2
+	Slider "Fade in over, units", "rss_after_soft", 0, 1024, 8, 0
+	StaticText "It changes the light the room HAS. Glow, the", "gray"
+	StaticText "bands, beams and fullbright things keep theirs.", "gray"
+	StaticText ""
+	StaticText "HOW LONG IT LASTS", "white"
+	StaticText "A ONCE PASS leaves it for the rest of the map. The", "gold"
+	StaticText "line holds, unseen, past the far edge, until the", "gold"
+	StaticText "next pass is sent or the map changes. Pair it with", "gold"
+	StaticText "Sources > Timing: Once.", "gold"
+	StaticText "A FIRED BAND keeps it only while it lives. The", "gray"
+	StaticText "look does not fade out with the band -- it goes", "gray"
+	StaticText "when the band ends.", "gray"
+	StaticText "On a Once pass, Brightness 0 hides the line and", "gray"
+	StaticText "still leaves the world changed behind it.", "gray"
+	StaticText ""
+	StaticText "The Effects still change each room as its centre", "gray"
+	StaticText "is crossed, and still carry what the level keeps.", "gray"
+	StaticText "This is the picture, drawn at the line.", "gray"
 }
 
 AddOptionMenu "OptionsMenu"
