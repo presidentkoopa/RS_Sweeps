@@ -31,6 +31,18 @@
 // now" and "has it passed this actor yet" are answerable questions. Crossings
 // and every registered effect hang on exactly that -- a band that re-tiers what
 // it washes over needs this and nothing more.
+//
+// NETPLAY: SHARED BANDS AND LOCAL ONES. The crossings run in the playsim and
+// some effects change the game, so a band that runs them has to be the same
+// band on every machine. Most are: a kill or an explosion happens everywhere,
+// and a Once pass from the map origin, a fixed point or the map centre is
+// worked out from server cvars and the map. Two are not. A "follows you"
+// standing band leaves from each machine's own camera, and "when YOU are hurt"
+// fires for consoleplayer only. Those are LOCAL. In a multiplayer game an
+// effect that is not look-only (RSS_Effect.LookOnly) hears only SHARED bands,
+// and a local fired band never takes a slot a shared one would get, or ends
+// one early, so where the shared bands are is the same on every machine too.
+// In single player every effect hears every band, as it always has.
 
 class RSS_Handler : EventHandler
 {
@@ -83,6 +95,9 @@ class RSS_Handler : EventHandler
 	private double  evReach[SLOTS];    // how far it travels, in map units
 	private int     evShape[SLOTS];
 	private bool    evLive[SLOTS];
+	// The same band on every machine -- see NETPLAY at the top. False only for
+	// a band fired from something one machine sees alone.
+	private bool    evShared[SLOTS];
 	// Where the front was LAST tic. The crossing test is a threshold -- behind
 	// this thing then, past it now -- so it needs both edges.
 	private double  evPrevFront[SLOTS];
@@ -289,6 +304,9 @@ class RSS_Handler : EventHandler
 
 	override void WorldTick()
 	{
+		// First, so a map loaded from a save has its glow claims standing
+		// again before anything paints -- see PublishClaims.
+		PublishClaims();
 		SyncPreset();
 		ResolveAnchor();
 		// Crossings BEFORE ageing, so the tic a band reaches the end of its
@@ -345,6 +363,9 @@ class RSS_Handler : EventHandler
 	// Where you are, for "follows you". Tracked whatever the mode, so switching
 	// to follows you in the menu starts from where you were standing rather
 	// than from the map origin.
+	//
+	// LOCAL. consoleplayer's camera is a different place on every machine, so
+	// nothing gameplay may hang on it -- see StandingShared.
 	void ResolveAnchor()
 	{
 		let cam = players[consoleplayer].camera;
@@ -375,6 +396,15 @@ class RSS_Handler : EventHandler
 		}
 		if (mode == 3) return (mapCentre.x, mapCentre.y, 0);
 		return (0, 0, 0);
+	}
+
+	// WHETHER THE STANDING BANDS ARE THE SAME ON EVERY MACHINE. "Follows you"
+	// leaves from each machine's own camera, and is LOCAL even before the
+	// camera is known; every other origin comes from server cvars and the map.
+	// Decides whether a Once pass runs gameplay effects in a netgame.
+	clearscope static bool StandingShared()
+	{
+		return RSS.GetI("rss_ambient_org", 1) != 1;
 	}
 
 	clearscope int StandingTiming() const
@@ -475,7 +505,8 @@ class RSS_Handler : EventHandler
 		// standing count was dropped to 0 under it.
 		int n = max(StandingCount(), 1);
 		Vector3 org = StandingOrigin(StandingShape(), StandingPad(n));
-		for (int i = 0; i < n; i++) NotifyBandEnd(org);
+		bool shared = StandingShared();
+		for (int i = 0; i < n; i++) NotifyBandEnd(org, shared);
 	}
 
 	// A pass that ARRIVED leaves its line behind while the after-look is on.
@@ -498,7 +529,15 @@ class RSS_Handler : EventHandler
 	// the standing bands at the bottom are never disturbed, and recycles the
 	// oldest when the allowance is full -- a busy room should show the most
 	// recent kills rather than refusing to show any.
-	void Fire(Vector3 at, int shape)
+	//
+	// `shared` false for a band only this machine fires -- see NETPLAY at the
+	// top. In a multiplayer game a local band is invisible to a shared band's
+	// pick: its slot counts as free, it does not fill the allowance, and it is
+	// never the oldest one recycled. A local band takes a free slot under the
+	// allowance, or recycles an older local band, or is not fired. So which
+	// slot a shared band gets, and when it ends, is the same on every machine.
+	// In single player every band is picked the one way it always was.
+	void Fire(Vector3 at, int shape, bool shared = true)
 	{
 		if (!RSS.GetB("rss_enabled", true)) return;
 		// An invisible band changes nothing. At brightness 0 -- the Off preset
@@ -515,11 +554,14 @@ class RSS_Handler : EventHandler
 		int used = 0, pick = -1;
 		double oldest = 1e30;
 		int oldestIdx = -1;
+		bool split = multiplayer;
 
 		for (int i = top; i >= lowest; i--)
 		{
-			if (!evLive[i]) { if (pick < 0) pick = i; continue; }
+			bool taken = evLive[i] && !(split && shared && !evShared[i]);
+			if (!taken) { if (pick < 0) pick = i; continue; }
 			used++;
+			if (split && !shared && evShared[i]) continue;
 			if (evBorn[i] < oldest) { oldest = evBorn[i]; oldestIdx = i; }
 		}
 
@@ -531,7 +573,7 @@ class RSS_Handler : EventHandler
 		if (evLive[pick])
 		{
 			evLive[pick] = false;
-			NotifyBandEnd(evOrigin[pick]);
+			NotifyBandEnd(evOrigin[pick], evShared[pick]);
 		}
 
 		// SPEED IS TIME, NOT DISTANCE. It used to multiply the reach, so a sweep
@@ -552,7 +594,32 @@ class RSS_Handler : EventHandler
 			: RSS.GetF("rss_ev_reach", 700.0);
 		evShape[pick] = shape;
 		evLive[pick] = true;
+		evShared[pick] = shared;
 		evPrevFront[pick] = 0.0;
+
+		// A shared band does not count the local ones, so in a netgame it can
+		// take the live total past the allowance. The oldest local band gives
+		// way; that is this machine's picture only.
+		if (split && shared)
+		{
+			int live = 0, oldLocal = -1;
+			double oldLocalBorn = 1e30;
+			for (int i = top; i >= lowest; i--)
+			{
+				if (!evLive[i]) continue;
+				live++;
+				if (!evShared[i] && evBorn[i] < oldLocalBorn)
+				{
+					oldLocalBorn = evBorn[i];
+					oldLocal = i;
+				}
+			}
+			if (live > allow && oldLocal >= 0)
+			{
+				evLive[oldLocal] = false;
+				NotifyBandEnd(evOrigin[oldLocal], false);
+			}
+		}
 	}
 
 	// ---- what a band does to what it passes --------------------------------
@@ -584,24 +651,39 @@ class RSS_Handler : EventHandler
 	// a Once pass. For an effect deciding whether "a band ended" means "put it
 	// all back" or "another one is still out there": the first band to end
 	// used to undo what a second was still doing.
-	static bool AnyBandLive()
+	//
+	// `forGameplay` true asks only about the bands a gameplay effect hears --
+	// in a netgame the shared ones, in single player all of them. A gameplay
+	// effect deciding "that was the last band" has to ask it this way, or a
+	// local band still out would make that decision differ between machines.
+	static bool AnyBandLive(bool forGameplay = false)
 	{
 		let h = RSS_Handler(EventHandler.Find("RSS_Handler"));
-		return h && h.HasLiveBand();
+		return h && h.HasLiveBand(forGameplay);
 	}
 
-	bool HasLiveBand() const
+	bool HasLiveBand(bool forGameplay = false) const
 	{
-		for (int i = 0; i < SLOTS; i++) if (evLive[i]) return true;
-		return onceLive;
+		bool all = !forGameplay || !multiplayer;
+		for (int i = 0; i < SLOTS; i++)
+			if (evLive[i] && (all || evShared[i])) return true;
+		return onceLive && (all || StandingShared());
 	}
 
-	private void NotifyBandEnd(Vector3 origin)
+	// In a netgame an effect that is not look-only hears only shared bands --
+	// see NETPLAY at the top.
+	private static bool EffectHears(RSS_Effect fx, bool gameplay)
+	{
+		return fx && (gameplay || fx.LookOnly());
+	}
+
+	private void NotifyBandEnd(Vector3 origin, bool shared)
 	{
 		let reg = RSS_Registry.Get();
 		if (!reg) return;
+		bool gameplay = shared || !multiplayer;
 		for (int k = 0; k < reg.effects.Size(); k++)
-			if (reg.effects[k]) reg.effects[k].OnBandEnd(origin);
+			if (EffectHears(reg.effects[k], gameplay)) reg.effects[k].OnBandEnd(origin);
 	}
 
 	private void TicDone()
@@ -618,6 +700,152 @@ class RSS_Handler : EventHandler
 		if (!reg) return;
 		for (int k = 0; k < reg.effects.Size(); k++)
 			if (reg.effects[k]) reg.effects[k].ResetForMap();
+	}
+
+	// ---- claims on sector glow ---------------------------------------------
+	//
+	// The handler's half of RSS_SectorClaim, in rss_effects.zs -- read that
+	// first.
+	//
+	// WHO PAINTED WHAT, one int per sector: the low four bits name the effect
+	// that painted its wall glow, the next four its flat glow, 0 for nobody.
+	// SAVED with the handler. The markers are client-side and a load drops
+	// them, so this table is what puts them back. Sized on the first claim; a
+	// map nothing has claimed keeps an empty one.
+	private Array<int> claimOwner;
+
+	// The markers, one per claimed sector, and the mask of effects some claim
+	// still names. Transient: remade from claimOwner by PublishClaims on this
+	// handler's first tic, and again after a load or a hub return.
+	private transient Array<Actor> claimMarker;
+	private transient int claimHeldBy;
+	private transient bool claimsPublished;
+
+	// For an effect: `parts` of this sector are now painted by `by`, one of the
+	// RSS_SectorClaim.BY_ bits. The last painter of a part owns it.
+	static void ClaimSector(Sector s, int parts, int by)
+	{
+		if (!s || parts == 0 || !ClaimBit(by)) return;
+		let h = RSS_Handler(EventHandler.Find("RSS_Handler"));
+		if (h) h.Claim(s.Index(), parts, by);
+	}
+
+	// For an effect: let go of every part `by` painted. Called every tic while
+	// an effect is switched off, so it is one bit test until there is
+	// something to let go of.
+	static void ReleaseClaims(int by)
+	{
+		if (!ClaimBit(by)) return;
+		let h = RSS_Handler(EventHandler.Find("RSS_Handler"));
+		if (h) h.Release(by);
+	}
+
+	// One bit, and one that fits the four bits a part keeps it in.
+	private static bool ClaimBit(int by)
+	{
+		return by > 0 && by <= 8 && (by & (by - 1)) == 0;
+	}
+
+	private void Claim(int idx, int parts, int by)
+	{
+		if (!Level) return;
+		int n = Level.Sectors.Size();
+		if (idx < 0 || idx >= n) return;
+		PublishClaims();
+		if (claimOwner.Size() != n) claimOwner.Resize(n);
+		if (claimMarker.Size() != n) claimMarker.Resize(n);
+
+		int own = claimOwner[idx];
+		if (parts & RSS_SectorClaim.PART_WALLS) own = (own & ~15) | by;
+		if (parts & RSS_SectorClaim.PART_FLATS) own = (own & 15) | (by << 4);
+		claimOwner[idx] = own;
+		claimHeldBy |= by;
+		MarkClaim(idx);
+	}
+
+	private void Release(int by)
+	{
+		PublishClaims();
+		if (!(claimHeldBy & by)) return;
+
+		claimHeldBy = 0;
+		for (int i = 0; i < claimOwner.Size(); i++)
+		{
+			int own = claimOwner[i];
+			if (own == 0) continue;
+			if ((own & 15) == by) own &= ~15;
+			if (((own >> 4) & 15) == by) own &= 15;
+			claimOwner[i] = own;
+			claimHeldBy |= (own & 15) | ((own >> 4) & 15);
+			MarkClaim(i);
+		}
+	}
+
+	// THE MARKERS PUT BACK TO MATCH claimOwner, once per handler. The first tic
+	// of a new map finds nothing to do. The first tic after a load or a hub
+	// return finds the saved table and no markers, because client-side
+	// thinkers are never saved.
+	//
+	// PLAY SCOPE, from WorldTick, which runs before UiTick on a tic -- so a
+	// GlowInTheDark re-applying the map after a load finds the claims standing
+	// before its write pass. A load with the console held down pauses the
+	// world before that first WorldTick, and GITD may repaint the swept rooms
+	// in that window.
+	private void PublishClaims()
+	{
+		if (claimsPublished || !Level) return;
+		claimsPublished = true;
+
+		// Any marker still standing goes first. There are none after a load, but
+		// a doubled claim is not worth betting a hub return on.
+		let it = ThinkerIterator.Create("RSS_SectorClaim", Thinker.STAT_INFO, true);
+		Actor stray;
+		while (stray = Actor(it.Next())) stray.Destroy();
+
+		// A table saved against a different sector count is some other map's.
+		int n = Level.Sectors.Size();
+		if (claimOwner.Size() != n) claimOwner.Clear();
+		claimMarker.Clear();
+		claimMarker.Resize(claimOwner.Size());
+		claimHeldBy = 0;
+		for (int i = 0; i < claimOwner.Size(); i++)
+		{
+			int own = claimOwner[i];
+			if (own == 0) continue;
+			claimHeldBy |= (own & 15) | ((own >> 4) & 15);
+			MarkClaim(i);
+		}
+	}
+
+	// Sector i's marker, brought in line with claimOwner: made, updated, or
+	// taken away. Spawned client-side and moved to STAT_INFO -- see
+	// RSS_SectorClaim for why both.
+	private void MarkClaim(int i)
+	{
+		if (i < 0 || i >= claimOwner.Size() || i >= claimMarker.Size()) return;
+		int own = claimOwner[i];
+		int parts = 0;
+		if (own & 15) parts |= RSS_SectorClaim.PART_WALLS;
+		if ((own >> 4) & 15) parts |= RSS_SectorClaim.PART_FLATS;
+
+		Actor m = claimMarker[i];
+		if (parts == 0)
+		{
+			if (m) m.Destroy();
+			claimMarker[i] = null;
+			return;
+		}
+		if (!m)
+		{
+			let sec = Level.Sectors[i];
+			m = Actor.SpawnClientSide("RSS_SectorClaim",
+				(sec.centerspot.x, sec.centerspot.y, sec.floorplane.ZatPoint(sec.centerspot)));
+			if (!m) return;
+			m.ChangeStatNum(Thinker.STAT_INFO);
+			m.args[0] = i;
+			claimMarker[i] = m;
+		}
+		m.args[1] = parts;
 	}
 
 	// Distance from a band's origin to a point, in the band's own geometry.
@@ -656,11 +884,16 @@ class RSS_Handler : EventHandler
 	// band costs nothing here. The fronts advance either way, so switching an
 	// effect on mid-band starts from where the front is rather than crossing
 	// everything it already passed in one tic.
+	//
+	// NETPLAY. A local band in a multiplayer game runs the look-only effects
+	// alone, and is walked only if one of THOSE wants the level -- see NETPLAY
+	// at the top.
 	void Crossings()
 	{
 		let reg = RSS_Registry.Get();
 
 		bool doSectors = false, doActors = false;
+		bool lookSectors = false, lookActors = false;
 		if (reg && RSS.GetB("rss_fx", false) && RSS.GetF("rss_intensity", 1.3) > 0.0)
 		{
 			bool sectorsOn = RSS.GetB("rss_fx_sectors", true);
@@ -669,8 +902,9 @@ class RSS_Handler : EventHandler
 			{
 				let fx = reg.effects[k];
 				if (!fx) continue;
-				if (sectorsOn && fx.WantsSectors()) doSectors = true;
-				if (actorsOn && fx.WantsActors()) doActors = true;
+				bool look = fx.LookOnly();
+				if (sectorsOn && fx.WantsSectors()) { doSectors = true; if (look) lookSectors = true; }
+				if (actorsOn && fx.WantsActors()) { doActors = true; if (look) lookActors = true; }
 			}
 		}
 
@@ -689,8 +923,10 @@ class RSS_Handler : EventHandler
 			// as the band travels, which means one sweep can leave a gradient
 			// of tiers and glow behind it rather than one flat answer.
 			double prog = clamp((level.maptime - evBorn[i]) / max(evLife[i], 1.0), 0.0, 1.0);
+			bool gameplay = evShared[i] || !multiplayer;
 			WalkFront(reg, evShape[i], evOrigin[i], prev, front, BandColor(prog),
-				doSectors, doActors);
+				gameplay ? doSectors : lookSectors, gameplay ? doActors : lookActors,
+				gameplay);
 		}
 
 		// ---- a Once pass ----
@@ -701,6 +937,9 @@ class RSS_Handler : EventHandler
 			double pad = StandingPad(amb);
 			Vector3 org = StandingOrigin(shape, pad);
 			double reach = StandingReach(shape, pad);
+			bool gameplay = StandingShared() || !multiplayer;
+			bool passSectors = gameplay ? doSectors : lookSectors;
+			bool passActors = gameplay ? doActors : lookActors;
 
 			for (int i = 0; i < amb; i++)
 			{
@@ -714,20 +953,22 @@ class RSS_Handler : EventHandler
 				if (front <= prev) continue;
 
 				WalkFront(reg, shape, org, prev, front, StandingColor(i, t),
-					doSectors, doActors);
+					passSectors, passActors, gameplay);
 			}
 		}
 	}
 
 	// One band's stretch of front, `prev` to `front`, handed to every effect:
-	// the band first, then each sector and actor it reached.
+	// the band first, then each sector and actor it reached. `gameplay` false
+	// hands it to the look-only effects alone -- a local band in a netgame.
 	private void WalkFront(RSS_Registry reg, int shape, Vector3 org,
-		double prev, double front, Color tint, bool doSectors, bool doActors)
+		double prev, double front, Color tint, bool doSectors, bool doActors,
+		bool gameplay)
 	{
 		if (!reg || (!doSectors && !doActors)) return;
 
 		for (int k = 0; k < reg.effects.Size(); k++)
-			if (reg.effects[k]) reg.effects[k].OnFrontMoved(org, front, tint);
+			if (EffectHears(reg.effects[k], gameplay)) reg.effects[k].OnFrontMoved(org, front, tint);
 
 		if (doSectors)
 		{
@@ -739,7 +980,7 @@ class RSS_Handler : EventHandler
 				double d = BandDistance(shape, org, c);
 				if (d < prev || d >= front) continue;
 				for (int k = 0; k < reg.effects.Size(); k++)
-					if (reg.effects[k]) reg.effects[k].OnSector(sec, org, front, tint);
+					if (EffectHears(reg.effects[k], gameplay)) reg.effects[k].OnSector(sec, org, front, tint);
 			}
 		}
 
@@ -753,7 +994,7 @@ class RSS_Handler : EventHandler
 				double d = BandDistance(shape, org, a.pos);
 				if (d < prev || d >= front) continue;
 				for (int k = 0; k < reg.effects.Size(); k++)
-					if (reg.effects[k]) reg.effects[k].OnActor(a, org, front, tint);
+					if (EffectHears(reg.effects[k], gameplay)) reg.effects[k].OnActor(a, org, front, tint);
 			}
 		}
 	}
@@ -767,7 +1008,7 @@ class RSS_Handler : EventHandler
 			evLive[i] = false;
 			// Tell the effects the band is done, so anything that accumulated
 			// while it travelled has somewhere to put it back.
-			NotifyBandEnd(evOrigin[i]);
+			NotifyBandEnd(evOrigin[i], evShared[i]);
 		}
 
 		// A Once pass ends when its LAST band has arrived -- or straight away if
@@ -866,6 +1107,18 @@ class RSS_Handler : EventHandler
 	}
 
 	// ---- the push ----------------------------------------------------------
+
+	// Every look slider on the live pages is read on this path, and UiTick runs
+	// it, so they move the bands while the menu is open. Declared for menu_lint's
+	// live-page check; the after-look's are beside PushAfterLook.
+	// LINT-UI-LIVE: rss_ambient_count rss_ambient_speed rss_ambient_reach rss_train_speed rss_train_gap
+	// LINT-UI-LIVE: rss_ambient_x rss_ambient_y rss_ambient_z rss_ping_every rss_ping_speed rss_ping_reach
+	// LINT-UI-LIVE: rss_thickness rss_softness rss_intensity rss_trail rss_fade
+	// LINT-UI-LIVE: rss_band_col1 rss_band_col2 rss_band_col3 rss_band_col4 rss_band_col5 rss_band_col6 rss_band_col7 rss_band_col8
+	// LINT-UI-LIVE: rss_band_thick1 rss_band_thick2 rss_band_thick3 rss_band_thick4 rss_band_thick5 rss_band_thick6 rss_band_thick7 rss_band_thick8
+	// LINT-UI-LIVE: rss_col_r rss_col_g rss_col_b rss_col_mix rss_col2_r rss_col2_g rss_col2_b
+	// LINT-UI-LIVE: rss_fill_u rss_fill_v rss_fill_width rss_fill_soft rss_fill_gap rss_fill_air rss_fill_r rss_fill_g rss_fill_b
+	// LINT-UI-LIVE: rss_fill_rotate rss_fill_drift rss_fill_major rss_fill_boost rss_fill_jitter rss_fill_flicker rss_fill_grad
 
 	// Returns the slots it wrote, one bit each. UiTick hands back whatever was
 	// held last time and is not in that set.
@@ -1273,10 +1526,13 @@ class RSS_Handler : EventHandler
 			return;
 		}
 
+		// LOCAL. consoleplayer is a different player on every machine, so this
+		// band exists on one of them only, and in a netgame it runs the
+		// look-only effects alone -- see NETPLAY at the top.
 		if (RSS.GetB("rss_ev_hurt", false) && e.Thing.player
 			&& e.Thing.player == players[consoleplayer])
 		{
-			Fire(e.Thing.pos, SH_SHELL);
+			Fire(e.Thing.pos, SH_SHELL, false);
 		}
 	}
 

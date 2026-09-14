@@ -85,6 +85,25 @@ class RSS_Effect play
 	// was.
 	virtual bool WantsSectors() { return true; }
 	virtual bool WantsActors() { return true; }
+
+	// WHETHER THIS EFFECT ONLY CHANGES WHAT IS DRAWN. True for an effect that
+	// touches nothing the playsim reads -- glow, fog, outlines, a cvar another
+	// mod draws with. False for one that changes the game: a monster's target
+	// or tier, a sector's light level, anything spawned or damaged.
+	//
+	// NETPLAY. Not every band is the same on every machine. A "follows you"
+	// standing band leaves from each player's own camera, and "when YOU are
+	// hurt" fires on one machine only. In a multiplayer game an effect that is
+	// not look-only hears only the bands every player shares -- fired from a
+	// kill or an explosion, or a Once pass whose origin is not a camera -- and
+	// is skipped for the others: OnFrontMoved, OnSector, OnActor and OnBandEnd
+	// alike. OnTicDone and ResetForMap are not per band and always run. In
+	// single player every effect hears every band, exactly as before.
+	//
+	// False unless overridden, so an effect from another mod is treated as
+	// gameplay: the worst that does to a look effect is miss a band in a
+	// netgame, where the other way round a gameplay effect would desync it.
+	virtual bool LookOnly() { return false; }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +126,8 @@ class RSS_FxFogRipple : RSS_Effect
 
 	override bool WantsSectors() { return RSS.GetB("rss_fx_fog", false) && RSS.HasFog(); }
 	override bool WantsActors() { return false; }
+	// The disturbance pool is shader input only.
+	override bool LookOnly() { return true; }
 
 	override void OnFrontMoved(Vector3 origin, double front, Color tint)
 	{
@@ -136,11 +157,15 @@ class RSS_FxFogRipple : RSS_Effect
 //
 // It writes the sector glow directly rather than going through GlowInTheDark,
 // because the two mods do not know about each other and a sweep that only
-// worked with GITD loaded would be a worse thing to have built.
+// worked with GITD loaded would be a worse thing to have built. It leaves a
+// claim on the flats it painted, so GITD's own repaint passes them by -- see
+// RSS_SectorClaim.
 class RSS_FxRecolour : RSS_Effect
 {
 	override bool WantsSectors() { return RSS.GetB("rss_fx_recolour", false); }
 	override bool WantsActors() { return false; }
+	// Sector glow is render state, and its claim markers are client-side.
+	override bool LookOnly() { return true; }
 
 	override void OnSector(Sector s, Vector3 origin, double front, Color tint)
 	{
@@ -159,12 +184,34 @@ class RSS_FxRecolour : RSS_Effect
 		s.SetFlatGlowColorFar(Sector.ceiling, c);
 		s.SetFlatGlowHeight(Sector.floor, reach);
 		s.SetFlatGlowHeight(Sector.ceiling, reach * 0.7);
+
+		RSS_Handler.ClaimSector(s, RSS_SectorClaim.PART_FLATS, RSS_SectorClaim.BY_RECOLOUR);
+	}
+
+	// Switched off -- this effect, the Effects page, or the whole mod -- and the
+	// flats it painted are handed back. The colour stays until something else
+	// paints there; with GITD loaded that is GITD's next look at the map.
+	override void OnTicDone()
+	{
+		if (RSS.GetB("rss_enabled", true) && RSS.GetB("rss_fx", false)
+			&& RSS.GetB("rss_fx_recolour", false)) return;
+		RSS_Handler.ReleaseClaims(RSS_SectorClaim.BY_RECOLOUR);
 	}
 }
 
 // Wake what the front reaches. A sweep that alerts the level is a gameplay
 // event rather than a decoration, and it is the smallest honest example of the
 // frontier changing the game rather than the picture.
+//
+// GAMEPLAY, so in a netgame it hears only the bands every player shares -- see
+// RSS_Effect.LookOnly.
+//
+// THE NEAREST PLAYER, NEVER consoleplayer. consoleplayer is a different player
+// on every machine, so a monster woken toward "you" hunted a different player
+// on each peer and the game desynced. Player positions are playsim state, the
+// same everywhere, so the nearest one is the same answer on every machine: a
+// living player beats a dead one, and a tie goes to the lower player number.
+// In single player the only player is the nearest, so nothing there changes.
 class RSS_FxRouse : RSS_Effect
 {
 	override bool WantsSectors() { return false; }
@@ -176,8 +223,34 @@ class RSS_FxRouse : RSS_Effect
 		if (!a || !a.bIsMonster || a.health <= 0) return;
 		if (a.target != null) return;
 
-		let pmo = players[consoleplayer].mo;
+		let pmo = NearestPlayer(a);
 		if (pmo) a.target = pmo;
+	}
+
+	// Walked in player order with a strict comparison, so the pick depends on
+	// nothing but the players' own positions, health and numbers.
+	static Actor NearestPlayer(Actor from)
+	{
+		Actor best = null;
+		bool bestAlive = false;
+		double bestDist = 0.0;
+		for (int i = 0; i < MAXPLAYERS; i++)
+		{
+			if (!playeringame[i]) continue;
+			let mo = players[i].mo;
+			if (!mo) continue;
+			bool alive = mo.health > 0;
+			double d = from.Distance3D(mo);
+			if (best)
+			{
+				if (bestAlive && !alive) continue;
+				if (bestAlive == alive && d >= bestDist) continue;
+			}
+			best = mo;
+			bestAlive = alive;
+			bestDist = d;
+		}
+		return best;
 	}
 }
 
@@ -208,6 +281,10 @@ class RSS_FxRouse : RSS_Effect
 // cares. RS_Sweeps calls it on what the front reaches and never asks what the
 // thing is. A monster mod overrides it and re-tiers. Neither mod has to know
 // the other exists, and either one loads alone.
+//
+// GAMEPLAY: a retier changes the monster. So in a netgame the hook is called
+// only for the bands every player shares -- see RSS_Effect.LookOnly -- and an
+// override may rely on that.
 class RSS_FxCrossed : RSS_Effect
 {
 	override bool WantsSectors() { return false; }
@@ -235,13 +312,19 @@ class RSS_FxCrossed : RSS_Effect
 // THE FAR COLOUR IS WRITTEN TOO. Each glow ramps from its colour into a far
 // colour, and GlowInTheDark derives that far colour from its own hue. Left
 // alone, a swept room's new glow ramped straight back into the old room's
-// colour. (GITD still repaints the whole map on its own settings change and
-// will take the sweep's colours with it; skipping swept sectors is GITD's to
-// add.)
+// colour.
+//
+// AND THE SECTOR IS CLAIMED. GITD repaints the whole map whenever one of its
+// settings moves, and re-reads lights and flats about once a second; both used
+// to take the sweep's colour straight back off. The claim is what GITD skips --
+// see RSS_SectorClaim. Only the parts actually painted are claimed, so a sweep
+// set to leave the walls alone leaves them GITD's.
 class RSS_FxGlow : RSS_Effect
 {
 	override bool WantsSectors() { return RSS.GetB("rss_fx_glow", false); }
 	override bool WantsActors() { return false; }
+	// Sector glow is render state, and its claim markers are client-side.
+	override bool LookOnly() { return true; }
 
 	override void OnSector(Sector s, Vector3 origin, double front, Color tint)
 	{
@@ -249,6 +332,7 @@ class RSS_FxGlow : RSS_Effect
 
 		double wall = RSS.GetF("rss_fx_glow_wall", 96.0);
 		double flat = RSS.GetF("rss_fx_glow_flat", 140.0);
+		int parts = 0;
 
 		if (wall > 0.0)
 		{
@@ -258,6 +342,7 @@ class RSS_FxGlow : RSS_Effect
 			s.SetGlowColorFar(Sector.ceiling, tint);
 			s.SetGlowHeight(Sector.floor, wall);
 			s.SetGlowHeight(Sector.ceiling, wall * 0.75);
+			parts |= RSS_SectorClaim.PART_WALLS;
 		}
 		if (flat > 0.0)
 		{
@@ -267,12 +352,100 @@ class RSS_FxGlow : RSS_Effect
 			s.SetFlatGlowColorFar(Sector.ceiling, tint);
 			s.SetFlatGlowHeight(Sector.floor, flat);
 			s.SetFlatGlowHeight(Sector.ceiling, flat * 0.7);
+			parts |= RSS_SectorClaim.PART_FLATS;
 		}
+
+		if (parts != 0) RSS_Handler.ClaimSector(s, parts, RSS_SectorClaim.BY_GLOW);
+	}
+
+	// Switched off -- this effect, the Effects page, or the whole mod -- and every
+	// part it painted is handed back. The colour itself stays until something
+	// else paints there: with GITD loaded that is GITD's next look at the map,
+	// and with it absent nothing does, the same as a sweep has always left it.
+	override void OnTicDone()
+	{
+		if (RSS.GetB("rss_enabled", true) && RSS.GetB("rss_fx", false)
+			&& RSS.GetB("rss_fx_glow", false)) return;
+		RSS_Handler.ReleaseClaims(RSS_SectorClaim.BY_GLOW);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A SWEEP'S CLAIM ON A SECTOR'S GLOW.
+//
+// A swept room keeps the sweep's colour -- that is the whole point of the glow
+// effects. But sector glow is shared engine state, and anything else that
+// paints it paints over a sweep. GlowInTheDark repaints every sector when one
+// of its settings moves, and again when a light or a flat changes under it;
+// and switching it off cleared every sector, the sweep's included.
+//
+// So the glow effects leave a CLAIM on what they painted, and a mod that paints
+// sector glow can pass claimed parts by. Neither mod names the other. The
+// contract is this class NAME, looked up from a string at run time, and base
+// Actor fields only:
+//
+//   where    a CLIENT-SIDE actor in Thinker.STAT_INFO --
+//            ThinkerIterator.Create(name, Thinker.STAT_INFO, true)
+//   args[0]  the sector's index in Level.Sectors
+//   args[1]  the parts claimed: PART_WALLS (both wall glows), PART_FLATS (both
+//            flat glows), or both. One marker per claimed sector.
+//
+// A claim lasts for the map. It is let go when the effect that painted it is
+// switched off (the OnTicDone of RSS_FxGlow and RSS_FxRecolour), and it goes
+// with the map. Nothing else takes it away.
+//
+// CLIENT-SIDE, BECAUSE WHAT IT DESCRIBES IS. Sector glow is render state, and
+// the crossings that paint it are not the same on every machine: a "follows
+// you" sweep leaves from each player's own camera, and "when YOU are hurt"
+// fires on one machine only. A playsim actor spawned from there would make a
+// different number of actors on each peer, and every playsim actor takes the
+// next free network id (NetworkEntityManager::AddNetworkEntity) -- so the ids
+// of everything spawned after it would disagree between machines. A client-side
+// actor takes no id and lives in its own collection.
+//
+// STAT_INFO, so it never thinks and nothing walking the level's actors ever
+// meets it: that list sits below STAT_FIRST_THINKING, which is where both the
+// ticker and a default ThinkerIterator start.
+//
+// NOT SAVED. Client-side thinkers are not written into a savegame. The handler
+// keeps who painted what in a saved table and puts the markers back after a
+// load -- see RSS_Handler.PublishClaims. The glow itself the engine does save.
+class RSS_SectorClaim : Actor
+{
+	const PART_WALLS = 1;
+	const PART_FLATS = 2;
+
+	// Which effect painted a part, so switching one effect off lets go of only
+	// what that effect painted. One bit each, 1 2 4 or 8: the handler keeps
+	// them as a mask and packs one per part into four bits.
+	const BY_GLOW     = 1;
+	const BY_RECOLOUR = 2;
+
+	Default
+	{
+		+NOINTERACTION
+		+NOBLOCKMAP
+		+NOSECTOR
+		+NOGRAVITY
+		+DONTSPLASH
+		+NOTONAUTOMAP
+		RenderStyle "None";
+	}
+
+	States
+	{
+	Spawn:
+		TNT1 A -1;
+		Stop;
 	}
 }
 
 // LIGHT. Move the sector's own light level as the front passes -- a wave that
 // puts a room out, or brings one up. Signed, so one preset does both.
+//
+// GAMEPLAY, not look. The light level is playsim state: light thinkers step
+// from it, and scripts read it for sight and stealth. So in a netgame only a
+// shared band moves it -- see RSS_Effect.LookOnly.
 class RSS_FxLight : RSS_Effect
 {
 	override bool WantsSectors() { return RSS.GetB("rss_fx_light", false); }
@@ -310,6 +483,8 @@ class RSS_FxFogTint : RSS_Effect
 		return RSS.GetB("rss_fx_fogtint", false) && CVar.FindCVar("rsf_tint_mix") != null;
 	}
 	override bool WantsActors() { return false; }
+	// RS_Fog draws with the nosave tint cvars and nothing else reads them.
+	override bool LookOnly() { return true; }
 
 	override void OnFrontMoved(Vector3 origin, double front, Color tint)
 	{
@@ -377,6 +552,8 @@ class RSS_FxDarken : RSS_Effect
 
 	override bool WantsSectors() { return RSS.GetB("rss_fx_dark", false) && RSS.HasDarkness(); }
 	override bool WantsActors() { return false; }
+	// RS_Darkness draws with rsd_sweep_offset; no sector light is touched.
+	override bool LookOnly() { return true; }
 
 	override void OnSector(Sector s, Vector3 origin, double front, Color tint)
 	{
@@ -454,6 +631,8 @@ class RSS_FxDesat : RSS_Effect
 
 	override bool WantsSectors() { return RSS.GetB("rss_fx_desat", false); }
 	override bool WantsActors() { return false; }
+	// The global drain is a shader uniform.
+	override bool LookOnly() { return true; }
 
 	override void OnSector(Sector s, Vector3 origin, double front, Color tint)
 	{
@@ -506,6 +685,9 @@ class RSS_FxDecor : RSS_Effect
 {
 	override bool WantsSectors() { return false; }
 	override bool WantsActors() { return RSS.GetB("rss_fx_decor", false); }
+	// The outline fields are read by the sprite renderer and written to saves;
+	// nothing in the playsim reads them.
+	override bool LookOnly() { return true; }
 
 	override void OnActor(Actor a, Vector3 origin, double front, Color tint)
 	{

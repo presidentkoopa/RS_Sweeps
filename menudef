@@ -1,3 +1,26 @@
+// menu_lint (tools\menu_lint.py) holds the tuning pages to the live-slider
+// rule: every slider on them has to move the bands while the menu is open,
+// which here means RSS_Handler.Push, run from UiTick -- see the LINT-UI-LIVE
+// lines there and at PushAfterLook.
+// LINT-LIVE: RSSSources RSSBand RSSBands RSSColor RSSFill RSSFx RSSAfter
+//
+// NOT LOOK SLIDERS, and exempt for that. These rows are read at the moment
+// something happens, and the playsim is stopped while the menu is up, so
+// nothing happens to show them.
+//
+// Sources > Fired: which kills count, and the reach, life and speed a band is
+// GIVEN when it fires (RSS_Handler.Fire). A band already out keeps what it was
+// fired with, menu or no menu.
+// LINT-LIVE-OK: rss_ev_boss_health rss_ev_tier_min rss_ev_slots rss_ev_life rss_ev_reach rss_ev_speed
+//
+// Effects: what a front does to a sector or an actor, applied once as it
+// crosses (rss_effects.zs). Nothing on that page is continuous; the tier step
+// is read by RS_Main at the same moment.
+// LINT-LIVE-OK: rss_fx_tier_step rss_fx_glow_wall rss_fx_glow_flat rss_fx_recolour_reach
+// LINT-LIVE-OK: rss_fx_light_step rss_fx_light_floor rss_fx_light_ceil rss_fx_fogtint_mix
+// LINT-LIVE-OK: rss_fx_dark_step rss_fx_dark_min rss_fx_dark_max rss_fx_desat_step
+// LINT-LIVE-OK: rss_fx_decor_strength rss_fx_decor_thickness rss_fx_decor_threshold rss_fx_decor_glow
+
 OptionValue "RSS_Preset"
 {
 	 0, "Off"
@@ -340,6 +363,12 @@ OptionMenu "RSSFx"
 	StaticText "The level is only walked while an effect below is", "gold"
 	StaticText "switched on, and an invisible band -- brightness", "gold"
 	StaticText "0 -- changes nothing.", "gold"
+	StaticText ""
+	StaticText "In a netgame, effects that change the game --", "gray"
+	StaticText "retier, wake, sector light -- run only for sweeps", "gray"
+	StaticText "every player shares: kills, explosions, and Once", "gray"
+	StaticText "passes not set to Follows you. The look runs for", "gray"
+	StaticText "all of them.", "gray"
 	StaticText ""
 	Option "Enabled", "rss_fx", "OnOff"
 	Option "Act on sectors", "rss_fx_sectors", "OnOff"
