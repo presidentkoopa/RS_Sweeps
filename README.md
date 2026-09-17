@@ -1,0 +1,1 @@
+a suite of 'sector sweeps' which run through a level. capable of dynamically changing map properties (RS visuals, RS monsterset). right now it is just more kickass visuals. but once work starts on RS Smash TV Cube TNG Holodeck maps (christ that needs a better name), you can expect some serious shit.
