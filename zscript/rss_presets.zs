@@ -10,7 +10,7 @@ class RSS_Presets
 {
 	// How many Apply knows about. Kept beside them so adding one and
 	// forgetting this is a compile-visible mistake rather than a silent one.
-	const COUNT = 22;
+	const COUNT = 35;
 
 	static void F(String n, double v) { let c = CVar.FindCVar(n); if (c) c.SetFloat(v); }
 	static void I(String n, int v)    { let c = CVar.FindCVar(n); if (c) c.SetInt(v); }
@@ -273,6 +273,20 @@ class RSS_Presets
 		case 19: Purge();        break;
 		case 20: Curtain();      break;
 		case 21: Unison();       break;
+		// -- the same looks, crossing the map --
+		case 22: TideCross();         break;
+		case 23: PatrolCross();       break;
+		case 24: CorridorCross();     break;
+		case 25: DragnetCross();      break;
+		case 26: CageCross();         break;
+		case 27: HologramCross();     break;
+		case 28: InterferenceCross(); break;
+		case 29: BloodrushCross();    break;
+		case 30: CarnivalCross();     break;
+		case 31: WallOfLightCross();  break;
+		case 32: WallOfDarkCross();   break;
+		case 33: WallOfColourCross(); break;
+		case 34: WallOfFogCross();    break;
 		}
 	}
 
@@ -485,4 +499,48 @@ class RSS_Presets
 		Fill(1, 30.0, 30.0, 2.0, 1.0, 0.12, 0.7);
 		FillMotion(25.0, 18.0, 3.0, 2.6, 0.25, 0.30, 0.5, 1);
 	}
+
+	// ---- 22-34: THE SAME LOOKS, CROSSING THE MAP ----------------------------
+	//
+	// Owner, 2026-09-18: "evertyhing crosses the map, nothing originates from
+	// player. maybe we can keep a few 'originate from player' but i want the
+	// other ones too."
+	//
+	// Each of these calls the preset it is named after -- so the band, the
+	// colours, the lattice and the wake are that preset's, to the number -- and
+	// then replaces ONLY its standing bands: a signed shape (6-9) instead of
+	// rings or bars, the map centre instead of your feet, and the map's own span
+	// instead of a reach. Nothing above this line changed, so Tide is still the
+	// swell breathing out from under you, and Tide -- crossing is the same water
+	// arriving from the west.
+	//
+	// The directions are spread across the set on purpose: a list where
+	// everything travels west to east reads as one preset with thirteen
+	// palettes. The speeds are lower than their originals, because the distance
+	// is now the whole level rather than a reach around you.
+	//
+	// EVENT bands are left alone. A ring off an explosion belongs at the
+	// explosion, not at the edge of the map.
+
+	// A preset's standing bands, crossing. The reach is not passed: the handler
+	// gives a signed shape the map's own span.
+	static void Crossing(int count, double speed, int shape)
+	{
+		Ambient(count, speed, 4096.0, shape);
+		I("rss_ambient_org", 3);
+	}
+
+	static void TideCross()         { Tide();         Crossing(1, 0.09, 6); }
+	static void PatrolCross()       { Patrol();       Crossing(2, 0.14, 7); }
+	static void CorridorCross()     { Corridor();     Crossing(3, 0.16, 6); }
+	static void DragnetCross()      { Dragnet();      Crossing(1, 0.13, 9); }
+	static void CageCross()         { Cage();         Crossing(1, 0.12, 8); }
+	static void HologramCross()     { Hologram();     Crossing(1, 0.11, 7); }
+	static void InterferenceCross() { Interference(); Crossing(2, 0.22, 6); }
+	static void BloodrushCross()    { Bloodrush();    Crossing(2, 0.25, 9); }
+	static void CarnivalCross()     { Carnival();     Crossing(3, 0.20, 8); }
+	static void WallOfLightCross()  { WallOfLight();  Crossing(1, 0.10, 6); }
+	static void WallOfDarkCross()   { WallOfDark();   Crossing(1, 0.09, 9); }
+	static void WallOfColourCross() { WallOfColour(); Crossing(1, 0.10, 7); }
+	static void WallOfFogCross()    { WallOfFog();    Crossing(1, 0.08, 8); }
 }

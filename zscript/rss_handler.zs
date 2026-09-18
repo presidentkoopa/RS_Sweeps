@@ -450,8 +450,13 @@ class RSS_Handler : EventHandler
 	// the front starts at your feet and travels outward, so the level changes
 	// away from you rather than arriving at you, and the reach is only as far
 	// as it still has map to cross.
+	// rss_cross_always (owner, 2026-09-18) settles the contradiction between a
+	// shape that says CROSS THE MAP and an origin that says START AT ME: with it
+	// on, a signed shape always leaves the edge. Only crossing shapes ask this --
+	// rings, bars and shells keep using Centred on as they always did.
 	clearscope bool SweepFromYou() const
 	{
+		if (RSS.GetB("rss_cross_always", true)) return false;
 		return RSS.GetI("rss_ambient_org", 1) == 1 && anchorValid;
 	}
 

@@ -13,6 +13,16 @@
 server bool  rss_enabled       = true;
 server int   rss_preset        = 1;
 
+// A SWEEP shape (6-9) always crosses the whole map, whatever "Centred on"
+// says. Owner 2026-09-18: "evertyhing crosses the map, nothing originates from
+// player" -- and a sweep starting at your feet while the menu also offered a
+// crossing shape was the contradiction they were seeing.
+//
+// Off restores the old reading, where Follows you starts the front where you
+// stand and sends it outward. Rings, bars and shells are not affected either
+// way: they have no edge to leave from, so they always use Centred on.
+server bool  rss_cross_always  = true;
+
 // Internal. The preset last applied, so a preset only re-applies when it
 // CHANGES rather than on every map load, which would wipe slider tweaks.
 //
