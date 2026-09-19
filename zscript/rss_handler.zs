@@ -284,6 +284,7 @@ class RSS_Handler : EventHandler
 		// bands above. A new map sends one when Once is the timing -- the map
 		// starting is one of the two things that send it.
 		onceLive = false;
+		loadedLive = true;
 		// A parked after-look belongs to this map. A save loaded on it keeps
 		// the look, the same as the glow and light a pass left in the sectors.
 		if (!e.IsSaveGame) parked = false;
@@ -306,8 +307,10 @@ class RSS_Handler : EventHandler
 	{
 		// First, so a map loaded from a save has its glow claims standing
 		// again before anything paints -- see PublishClaims.
+		if (!loadedLive) ResumeFromSave();
 		PublishClaims();
 		SyncPreset();
+		savedLatch = RSS.GetI("rss_preset_applied", -1) + 1;
 		ResolveAnchor();
 		// Crossings BEFORE ageing, so the tic a band reaches the end of its
 		// travel still walks that last stretch and only then tells the effects
@@ -332,7 +335,9 @@ class RSS_Handler : EventHandler
 	// it is the one place the held set can be kept.
 	override void UiTick()
 	{
-		SyncPreset();
+		// Waits for WorldTick to repair the latch after a save restore -- see
+		// ResumeFromSave. The push does not wait; it reads what the save left.
+		if (loadedLive) SyncPreset();
 		int wrote = Push();
 		ReleaseSlots(heldSlots & ~wrote, wrote == 0);
 		heldSlots = wrote;
@@ -347,6 +352,14 @@ class RSS_Handler : EventHandler
 		if (!RSS.GetB("rss_enabled", true)) return;
 		if (StandingTiming() != TM_ONCE) return;
 		StartOncePass();
+	}
+
+	// A handler restored from a save: match the latch to the preset the
+	// restored cvars already belong to instead of applying anything.
+	void ResumeFromSave()
+	{
+		loadedLive = true;
+		if (savedLatch > 0) RSS.SetI("rss_preset_applied", savedLatch - 1);
 	}
 
 	clearscope void SyncPreset()
@@ -722,6 +735,25 @@ class RSS_Handler : EventHandler
 	// The markers, one per claimed sector, and the mask of effects some claim
 	// still names. Transient: remade from claimOwner by PublishClaims on this
 	// handler's first tic, and again after a load or a hub return.
+
+	// ---- SURVIVING A SAVEGAME LOAD -----------------------------------------
+	//
+	// The engine SKIPS WorldLoaded for a non-static handler on a save restore
+	// (events.cpp: `if (!handler->IsStatic() && savegamerestore) continue;`),
+	// and this handler is not static. So a load arrives with the preset cvar
+	// restored from the save -- along with every slider tuned on top of it --
+	// while the applied latch, which is nosave, reads whatever was showing
+	// before the load. The tick then sees "wanted != applied", calls it a fresh
+	// pick, and stamps the whole preset over the tuning the save just restored.
+	//
+	// A handler FIELD is serialized with the save, so it comes back saying
+	// which preset the restored cvars already belong to. Stored PLUS ONE, so a
+	// save written before this field existed reads 0 and restores nothing.
+	//
+	// Ported from RS_Darkness, which had this first and is the reference shape.
+	int savedLatch;
+	transient bool loadedLive;
+
 	private transient Array<Actor> claimMarker;
 	private transient int claimHeldBy;
 	private transient bool claimsPublished;

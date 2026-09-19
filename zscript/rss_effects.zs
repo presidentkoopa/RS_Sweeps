@@ -121,7 +121,13 @@ class RSS_FxFogRipple : RSS_Effect
 	// crossing thirty sectors in a tic refilled the whole pool every tic, and
 	// RS_Fog's own wake, death and blast ripples vanished the moment they were
 	// made.
-	const RIPPLES_PER_BAND = 3;
+	// PER TIC, ACROSS EVERY BAND -- not per band. The pool is 32 slots and the
+	// oldest is recycled, and RS_Fog throttles itself hard against it (one
+	// wader pick every rsf_wader_every tics, 6 by default). Three per band was
+	// fine for one band and starved that throttle at eight: 24 of 32 slots
+	// refilled every tic, and the player's own wake, the death ripples and the
+	// explosion flashes vanished as fast as they were made.
+	const RIPPLES_PER_TIC = 6;
 	private int rippled;
 
 	override bool WantsSectors() { return RSS.GetB("rss_fx_fog", false) && RSS.HasFog(); }
@@ -129,7 +135,9 @@ class RSS_FxFogRipple : RSS_Effect
 	// The disturbance pool is shader input only.
 	override bool LookOnly() { return true; }
 
-	override void OnFrontMoved(Vector3 origin, double front, Color tint)
+	// Not reset per band any more -- the budget is the tic's, so eight bands
+	// share what one band used to have to itself.
+	override void OnTicDone()
 	{
 		rippled = 0;
 	}
@@ -137,7 +145,7 @@ class RSS_FxFogRipple : RSS_Effect
 	override void OnSector(Sector s, Vector3 origin, double front, Color tint)
 	{
 		if (!RSS.GetB("rss_fx_fog", false)) return;
-		if (rippled >= RIPPLES_PER_BAND) return;
+		if (rippled >= RIPPLES_PER_TIC) return;
 		rippled++;
 
 		Vector3 at = (s.centerspot.x, s.centerspot.y, s.floorplane.ZatPoint(s.centerspot));
@@ -332,6 +340,22 @@ class RSS_FxGlow : RSS_Effect
 
 		double wall = RSS.GetF("rss_fx_glow_wall", 96.0);
 		double flat = RSS.GetF("rss_fx_glow_flat", 140.0);
+
+		// THE FLATS BELONG TO RECOLOUR WHILE RECOLOUR IS ON. Both effects write
+		// the same flat lanes and both claim PART_FLATS, and the claim table
+		// keeps ONE owner per part -- so this one, registered later, took the
+		// flats outright. Two things followed: the Recolour reach row was live
+		// and inert, because the reach came from here instead; and switching
+		// this effect off released flats Recolour was still painting, which
+		// handed those rooms to GlowInTheDark while Recolour believed it held
+		// them.
+		//
+		// Yielding rather than arbitrating, because the two write the same
+		// colour to the same lanes at the same default reach -- at the defaults
+		// this changes nothing on screen, and it gives the flats one owner.
+		// The walls are untouched and stay this effect's.
+		if (RSS.GetB("rss_fx_recolour", false)) flat = 0.0;
+
 		int parts = 0;
 
 		if (wall > 0.0)
@@ -458,7 +482,19 @@ class RSS_FxLight : RSS_Effect
 		if (step == 0) return;
 		int floorL = RSS.GetI("rss_fx_light_floor", 0);
 		int ceilL  = RSS.GetI("rss_fx_light_ceil", 255);
-		s.SetLightLevel(clamp(s.lightlevel + step, floorL, ceilL));
+
+		// NEVER READ `lightlevel` AND WRITE IT BACK THROUGH SetLightLevel WHEN A
+		// TRIM MAY BE IN PLAY. `lightlevel` is the TRIMMED value; SetLightLevel
+		// writes LightTrimBase. Read-modify-write across those two folds the
+		// trim into the base permanently and the original is gone -- so on a
+		// room RS_Ballistics has dimmed for shot-out lights (base 160, dim 0.6,
+		// effective 64) a -32 step wrote base 32, the room lost 51 rather than
+		// 32, and repairing the lamp restored it to 32 instead of 160. Take the
+		// base, do the arithmetic there, write that back.
+		//
+		// GetLightTrimBase() falls back to lightlevel when nothing is trimmed,
+		// so with RS_Ballistics absent this is byte-identical to what it was.
+		s.SetLightLevel(clamp(s.GetLightTrimBase() + step, floorL, ceilL));
 	}
 }
 
